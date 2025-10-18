@@ -32,8 +32,17 @@ export default function App() {
   const [prayerTimes, setPrayerTimes] = useState([]);
   const [loadingPrayer, setLoadingPrayer] = useState(false);
   const [showCityDropdown, setShowCityDropdown] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const cities = ["Adana","Adıyaman","Afyonkarahisar","Ağrı","Aksaray","Amasya","Ankara","Antalya","Ardahan","Artvin","Aydın","Balıkesir","Bartın","Batman","Bayburt","Bilecik","Bingöl","Bitlis","Bolu","Burdur","Bursa","Çanakkale","Çankırı","Çorum","Denizli","Diyarbakır","Düzce","Edirne","Elazığ","Erzincan","Erzurum","Eskişehir","Gaziantep","Giresun","Gümüşhane","Hakkari","Hatay","Iğdır","Isparta","İstanbul","İzmir","Kahramanmaraş","Karabük","Karaman","Kars","Kastamonu","Kayseri","Kilis","Kırıkkale","Kırklareli","Kırşehir","Kocaeli","Konya","Kütahya","Malatya","Manisa","Mardin","Mersin","Muğla","Muş","Nevşehir","Niğde","Ordu","Osmaniye","Rize","Sakarya","Samsun","Şanlıurfa","Siirt","Sinop","Sivas","Şırnak","Tekirdağ","Tokat","Trabzon","Tunceli","Uşak","Van","Yalova","Yozgat","Zonguldak"];
+
+  // Canlı saat güncellemesi
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const navigateTo = (page) => {
     setCurrentPage(page);
@@ -46,13 +55,18 @@ export default function App() {
   const fetchPrayerTimes = async (city) => {
     setLoadingPrayer(true);
     try {
-      const cityLower = city.toLowerCase()
-        .replace('ç', 'c')
-        .replace('ğ', 'g')
-        .replace('ı', 'i')
-        .replace('ö', 'o')
-        .replace('ş', 's')
-        .replace('ü', 'u');
+      const cityLower = city
+        .replace(/İ/g, 'i')
+        .replace(/I/g, 'i')
+        .toLowerCase()
+        .replace(/ç/g, 'c')
+        .replace(/ğ/g, 'g')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ş/g, 's')
+        .replace(/ü/g, 'u');
+      
+      console.log('Requesting city:', cityLower);
       
       const response = await fetch(`https://api.collectapi.com/pray/all?city=${cityLower}`, {
         method: 'GET',
@@ -62,12 +76,17 @@ export default function App() {
         }
       });
       
+      console.log('Response status:', response.status);
+      
       if (!response.ok) {
-        Alert.alert('API Hatası', `HTTP ${response.status}: API key geçersiz veya süresi dolmuş olabilir.`);
+        const errorText = await response.text();
+        console.log('Error response:', errorText);
+        Alert.alert('API Hatası', `Şehir için veri alınamadı. Lütfen başka bir şehir deneyin.`);
         return;
       }
       
       const data = await response.json();
+      console.log('Success! Prayer times received');
       
       if (data.success && data.result && data.result.length > 0) {
         setPrayerTimes(data.result);
@@ -87,6 +106,63 @@ export default function App() {
     setShowCityDropdown(false);
     fetchPrayerTimes(city);
   };
+
+  const getNextPrayer = () => {
+    if (prayerTimes.length === 0) return null;
+    
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    
+    for (let i = 0; i < prayerTimes.length; i++) {
+      const [hours, minutes] = prayerTimes[i].saat.split(':').map(Number);
+      const prayerMinutes = hours * 60 + minutes;
+      
+      if (prayerMinutes > currentMinutes) {
+        const diffMinutes = prayerMinutes - currentMinutes;
+        const hours = Math.floor(diffMinutes / 60);
+        const mins = Math.floor(diffMinutes % 60);
+        const secs = 60 - now.getSeconds();
+        
+        return {
+          name: prayerTimes[i].vakit,
+          time: prayerTimes[i].saat,
+          hours,
+          minutes: mins,
+          seconds: secs === 60 ? 0 : secs
+        };
+      }
+    }
+    
+    // Eğer tüm vakitler geçtiyse, yarının ilk vakti (İmsak)
+    if (prayerTimes[0]) {
+      const [hours, minutes] = prayerTimes[0].saat.split(':').map(Number);
+      const prayerMinutes = hours * 60 + minutes;
+      const tomorrowMinutes = (24 * 60) - currentMinutes + prayerMinutes;
+      const h = Math.floor(tomorrowMinutes / 60);
+      const m = Math.floor(tomorrowMinutes % 60);
+      const s = 60 - now.getSeconds();
+      
+      return {
+        name: prayerTimes[0].vakit,
+        time: prayerTimes[0].saat,
+        hours: h,
+        minutes: m,
+        seconds: s === 60 ? 0 : s
+      };
+    }
+    
+    return null;
+  };
+
+  const isPrayerPassed = (prayerTime) => {
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const [hours, minutes] = prayerTime.split(':').map(Number);
+    const prayerMinutes = hours * 60 + minutes;
+    return prayerMinutes < currentMinutes;
+  };
+
+  const nextPrayer = getNextPrayer();
 
   const handleCreateCard = () => {
     if (newTitle.trim() && newValue && parseFloat(newValue) > 0) {
@@ -221,7 +297,7 @@ export default function App() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Kart Takip</Text>
+        <Text style={styles.headerTitle}>Namaz Vakti</Text>
         <TouchableOpacity onPress={() => setMenuOpen(!menuOpen)} style={styles.menuButton}>
           <Menu color="white" size={24} />
         </TouchableOpacity>
@@ -558,6 +634,18 @@ export default function App() {
             </ScrollView>
           )}
 
+          {nextPrayer && (
+            <View style={styles.nextPrayerBox}>
+              <Text style={styles.nextPrayerTitle}>Yaklaşan Vakit</Text>
+              <Text style={styles.nextPrayerName}>{nextPrayer.name}</Text>
+              <Text style={styles.nextPrayerTime}>{nextPrayer.time}</Text>
+              <Text style={styles.nextPrayerCountdown}>
+                {nextPrayer.hours > 0 && `${nextPrayer.hours} saat `}
+                {nextPrayer.minutes} dakika {nextPrayer.seconds} saniye
+              </Text>
+            </View>
+          )}
+
           <View style={styles.card}>
             {loadingPrayer ? (
               <Text style={styles.loadingText}>Yükleniyor...</Text>
@@ -567,12 +655,34 @@ export default function App() {
                   <Text style={[styles.tableHeaderText, styles.tableCell]}>Vakit</Text>
                   <Text style={[styles.tableHeaderText, styles.tableCell]}>Saat</Text>
                 </View>
-                {prayerTimes.map((time, index) => (
-                  <View key={index} style={[styles.tableRow, index % 2 === 0 && styles.tableRowEven]}>
-                    <Text style={[styles.tableCellText, styles.tableCell]}>{time.vakit}</Text>
-                    <Text style={[styles.tableCellText, styles.tableCell]}>{time.saat}</Text>
-                  </View>
-                ))}
+                {prayerTimes.map((time, index) => {
+                  const passed = isPrayerPassed(time.saat);
+                  return (
+                    <View 
+                      key={index} 
+                      style={[
+                        styles.tableRow, 
+                        index % 2 === 0 && styles.tableRowEven,
+                        passed && styles.tableRowPassed
+                      ]}
+                    >
+                      <Text style={[
+                        styles.tableCellText, 
+                        styles.tableCell,
+                        passed && styles.tableCellTextPassed
+                      ]}>
+                        {time.vakit}
+                      </Text>
+                      <Text style={[
+                        styles.tableCellText, 
+                        styles.tableCell,
+                        passed && styles.tableCellTextPassed
+                      ]}>
+                        {time.saat}
+                      </Text>
+                    </View>
+                  );
+                })}
               </View>
             )}
           </View>
@@ -897,5 +1007,47 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6B7280',
     padding: 20
+  },
+  nextPrayerBox: {
+    backgroundColor: '#16A34A',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  nextPrayerTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8
+  },
+  nextPrayerName: {
+    color: 'white',
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 4
+  },
+  nextPrayerTime: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 12
+  },
+  nextPrayerCountdown: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '500'
+  },
+  tableRowPassed: {
+    backgroundColor: '#7C2D12'
+  },
+  tableCellTextPassed: {
+    color: '#FEF2F2',
+    textDecorationLine: 'line-through'
   }
 });
