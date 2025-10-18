@@ -28,10 +28,64 @@ export default function App() {
   const [chartPeriod, setChartPeriod] = useState('weekly');
   const [selectedChartCard, setSelectedChartCard] = useState(null);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedCity, setSelectedCity] = useState('İstanbul');
+  const [prayerTimes, setPrayerTimes] = useState([]);
+  const [loadingPrayer, setLoadingPrayer] = useState(false);
+  const [showCityDropdown, setShowCityDropdown] = useState(false);
+
+  const cities = ["Adana","Adıyaman","Afyonkarahisar","Ağrı","Aksaray","Amasya","Ankara","Antalya","Ardahan","Artvin","Aydın","Balıkesir","Bartın","Batman","Bayburt","Bilecik","Bingöl","Bitlis","Bolu","Burdur","Bursa","Çanakkale","Çankırı","Çorum","Denizli","Diyarbakır","Düzce","Edirne","Elazığ","Erzincan","Erzurum","Eskişehir","Gaziantep","Giresun","Gümüşhane","Hakkari","Hatay","Iğdır","Isparta","İstanbul","İzmir","Kahramanmaraş","Karabük","Karaman","Kars","Kastamonu","Kayseri","Kilis","Kırıkkale","Kırklareli","Kırşehir","Kocaeli","Konya","Kütahya","Malatya","Manisa","Mardin","Mersin","Muğla","Muş","Nevşehir","Niğde","Ordu","Osmaniye","Rize","Sakarya","Samsun","Şanlıurfa","Siirt","Sinop","Sivas","Şırnak","Tekirdağ","Tokat","Trabzon","Tunceli","Uşak","Van","Yalova","Yozgat","Zonguldak"];
 
   const navigateTo = (page) => {
     setCurrentPage(page);
     setMenuOpen(false);
+    if (page === 'Vakitler') {
+      fetchPrayerTimes(selectedCity);
+    }
+  };
+
+  const fetchPrayerTimes = async (city) => {
+    setLoadingPrayer(true);
+    try {
+      const cityLower = city.toLowerCase()
+        .replace('ç', 'c')
+        .replace('ğ', 'g')
+        .replace('ı', 'i')
+        .replace('ö', 'o')
+        .replace('ş', 's')
+        .replace('ü', 'u');
+      
+      const response = await fetch(`https://api.collectapi.com/pray/all?city=${cityLower}`, {
+        method: 'GET',
+        headers: {
+          'content-type': 'application/json',
+          'authorization': 'apikey 6bhifejnOZi5grqhwDdjmN:7p0k9uaapOopk9cWT3GPj9'
+        }
+      });
+      
+      if (!response.ok) {
+        Alert.alert('API Hatası', `HTTP ${response.status}: API key geçersiz veya süresi dolmuş olabilir.`);
+        return;
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.result && data.result.length > 0) {
+        setPrayerTimes(data.result);
+      } else {
+        Alert.alert('Hata', 'Namaz vakitleri alınamadı');
+      }
+    } catch (error) {
+      console.error('Prayer Times Error:', error);
+      Alert.alert('Hata', 'Namaz vakitleri alınırken bir hata oluştu: ' + error.message);
+    } finally {
+      setLoadingPrayer(false);
+    }
+  };
+
+  const handleCityChange = (city) => {
+    setSelectedCity(city);
+    setShowCityDropdown(false);
+    fetchPrayerTimes(city);
   };
 
   const handleCreateCard = () => {
@@ -181,7 +235,7 @@ export default function App() {
           onPress={() => setMenuOpen(false)}
         >
           <View style={styles.menuContainer}>
-            {['Home', 'Cards', 'Reports'].map(page => (
+            {['Home', 'Cards', 'Reports', 'Vakitler'].map(page => (
               <TouchableOpacity
                 key={page}
                 onPress={() => navigateTo(page)}
@@ -478,6 +532,52 @@ export default function App() {
           )}
         </ScrollView>
       )}
+      {/* Vakitler Page */}
+      {currentPage === 'Vakitler' && (
+        <ScrollView style={styles.content}>
+          <Text style={styles.sectionTitle}>Şehirler</Text>
+          
+          <TouchableOpacity 
+            style={styles.dropdown}
+            onPress={() => setShowCityDropdown(!showCityDropdown)}
+          >
+            <Text style={styles.dropdownText}>{selectedCity}</Text>
+          </TouchableOpacity>
+
+          {showCityDropdown && (
+            <ScrollView style={styles.cityDropdownMenu} nestedScrollEnabled>
+              {cities.map(city => (
+                <TouchableOpacity
+                  key={city}
+                  style={styles.dropdownItem}
+                  onPress={() => handleCityChange(city)}
+                >
+                  <Text style={styles.dropdownItemText}>{city}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          <View style={styles.card}>
+            {loadingPrayer ? (
+              <Text style={styles.loadingText}>Yükleniyor...</Text>
+            ) : (
+              <View style={styles.prayerTable}>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.tableHeaderText, styles.tableCell]}>Vakit</Text>
+                  <Text style={[styles.tableHeaderText, styles.tableCell]}>Saat</Text>
+                </View>
+                {prayerTimes.map((time, index) => (
+                  <View key={index} style={[styles.tableRow, index % 2 === 0 && styles.tableRowEven]}>
+                    <Text style={[styles.tableCellText, styles.tableCell]}>{time.vakit}</Text>
+                    <Text style={[styles.tableCellText, styles.tableCell]}>{time.saat}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -745,5 +845,57 @@ const styles = StyleSheet.create({
   },
   chartCardButtonTextActive: {
     color: 'white'
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#1F2937'
+  },
+  cityDropdownMenu: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    maxHeight: 300
+  },
+  prayerTable: {
+    width: '100%'
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#2563EB',
+    padding: 12,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8
+  },
+  tableHeaderText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16
+  },
+  tableRow: {
+    flexDirection: 'row',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB'
+  },
+  tableRowEven: {
+    backgroundColor: '#F9FAFB'
+  },
+  tableCell: {
+    flex: 1,
+    textAlign: 'center'
+  },
+  tableCellText: {
+    fontSize: 16,
+    color: '#374151'
+  },
+  loadingText: {
+    textAlign: 'center',
+    fontSize: 16,
+    color: '#6B7280',
+    padding: 20
   }
 });
