@@ -14,10 +14,12 @@ import { Menu, Plus, Minus, Trash2, Download, X, Check } from 'lucide-react-nati
 import { LineChart } from 'react-native-chart-kit';
 import { documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import localPrayerTimes from './src/sources/prayer_times.json';
 
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState('Home');
+  const [currentPage, setCurrentPage] = useState('Vakitler');
   const [cards, setCards] = useState([]);
   const [selectedCard, setSelectedCard] = useState('New');
   const [showTitleInput, setShowTitleInput] = useState(false);
@@ -33,8 +35,11 @@ export default function App() {
   const [loadingPrayer, setLoadingPrayer] = useState(false);
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [syncingPrayers, setSyncingPrayers] = useState(false);
 
   const cities = ["Adana","Adıyaman","Afyonkarahisar","Ağrı","Aksaray","Amasya","Ankara","Antalya","Ardahan","Artvin","Aydın","Balıkesir","Bartın","Batman","Bayburt","Bilecik","Bingöl","Bitlis","Bolu","Burdur","Bursa","Çanakkale","Çankırı","Çorum","Denizli","Diyarbakır","Düzce","Edirne","Elazığ","Erzincan","Erzurum","Eskişehir","Gaziantep","Giresun","Gümüşhane","Hakkari","Hatay","Iğdır","Isparta","İstanbul","İzmir","Kahramanmaraş","Karabük","Karaman","Kars","Kastamonu","Kayseri","Kilis","Kırıkkale","Kırklareli","Kırşehir","Kocaeli","Konya","Kütahya","Malatya","Manisa","Mardin","Mersin","Muğla","Muş","Nevşehir","Niğde","Ordu","Osmaniye","Rize","Sakarya","Samsun","Şanlıurfa","Siirt","Sinop","Sivas","Şırnak","Tekirdağ","Tokat","Trabzon","Tunceli","Uşak","Van","Yalova","Yozgat","Zonguldak"];
+
+  const prayerNames = ["İmsak", "Güneş", "Öğle", "İkindi", "Akşam", "Yatsı"];
 
   // Canlı saat güncellemesi
   React.useEffect(() => {
@@ -44,16 +49,113 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Uygulama açılışında kaydedilmiş şehri yükle
+  React.useEffect(() => {
+    const initialize = async () => {
+      await initializePrayerTimes();
+      await loadSavedCity();
+    };
+    initialize();
+  }, []);
+
+  // Şehir değiştiğinde veya sayfa Vakitler'e geçtiğinde vakitleri yükle
+  React.useEffect(() => {
+    if (selectedCity && currentPage === 'Vakitler') {
+      loadPrayerTimesFromStorage(selectedCity);
+    }
+  }, [selectedCity, currentPage]);
+
+  const initializePrayerTimes = async () => {
+    try {
+      const existingData = await AsyncStorage.getItem('prayer_times.json');
+      if (!existingData) {
+        // İlk kez açılıyorsa yerel dosyadan yükle
+        await AsyncStorage.setItem('prayer_times.json', JSON.stringify(localPrayerTimes));
+        console.log('prayer_times.json dosyası yerel kaynaktan yüklendi');
+        Alert.alert('Hoş Geldiniz!', 'Namaz vakitleri yüklendi. Güncel vakitler için "Vakitleri Eşitle" butonunu kullanabilirsiniz.');
+      } else {
+        console.log('prayer_times.json zaten mevcut');
+      }
+    } catch (error) {
+      console.error('Prayer times initialize hatası:', error);
+    }
+  };
+
+  const loadSavedCity = async () => {
+    try {
+      const savedCity = await AsyncStorage.getItem('selectedCity');
+      if (savedCity) {
+        setSelectedCity(savedCity);
+        console.log('Kaydedilmiş şehir yüklendi:', savedCity);
+      }
+    } catch (error) {
+      console.error('Şehir yüklenirken hata:', error);
+    }
+  };
+
+  const saveCity = async (city) => {
+    try {
+      await AsyncStorage.setItem('selectedCity', city);
+      console.log('Şehir kaydedildi:', city);
+    } catch (error) {
+      console.error('Şehir kaydedilirken hata:', error);
+    }
+  };
+
   const navigateTo = (page) => {
     setCurrentPage(page);
     setMenuOpen(false);
-    if (page === 'Vakitler') {
-      fetchPrayerTimes(selectedCity);
+    if (page === 'Vakitler' && prayerTimes.length === 0) {
+      loadPrayerTimesFromStorage(selectedCity);
+    }
+  };
+
+  const loadPrayerTimesFromStorage = async (city) => {
+    setLoadingPrayer(true);
+    try {
+      const cityKey = city
+        .replace(/İ/g, 'i')
+        .replace(/I/g, 'i')
+        .toLowerCase()
+        .replace(/ç/g, 'c')
+        .replace(/ğ/g, 'g')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ş/g, 's')
+        .replace(/ü/g, 'u');
+
+      const data = await AsyncStorage.getItem('prayer_times.json');
+      
+      if (!data) {
+        Alert.alert('Uyarı', 'Namaz vakitleri henüz eşitlenmemiş. Lütfen Ayarlar sayfasından "Vakitleri Eşitle" butonuna basın.');
+        return;
+      }
+
+      const prayerData = JSON.parse(data);
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD formatı
+      
+      if (prayerData[cityKey] && prayerData[cityKey][today]) {
+        const times = prayerData[cityKey][today];
+        const formattedTimes = times.map((time, index) => ({
+          vakit: prayerNames[index],
+          saat: time
+        }));
+        setPrayerTimes(formattedTimes);
+        console.log('Vakitler AsyncStorage\'den yüklendi:', cityKey, today);
+      } else {
+        Alert.alert('Uyarı', `${city} için bugünün vakitleri bulunamadı. Lütfen vakitleri eşitleyin.`);
+      }
+    } catch (error) {
+      console.error('Storage\'dan veri yükleme hatası:', error);
+      Alert.alert('Hata', 'Vakitler yüklenirken bir hata oluştu.');
+    } finally {
+      setLoadingPrayer(false);
     }
   };
 
   const fetchPrayerTimes = async (city) => {
     setLoadingPrayer(true);
+    setSyncingPrayers(true);
     try {
       const cityLower = city
         .replace(/İ/g, 'i')
@@ -81,30 +183,92 @@ export default function App() {
       if (!response.ok) {
         const errorText = await response.text();
         console.log('Error response:', errorText);
-        Alert.alert('API Hatası', `Şehir için veri alınamadı. Lütfen başka bir şehir deneyin.`);
-        return;
+        throw new Error(`API Hatası: ${response.status}`);
       }
       
       const data = await response.json();
-      console.log('Success! Prayer times received');
       
       if (data.success && data.result && data.result.length > 0) {
-        setPrayerTimes(data.result);
+        // API'den gelen veriyi AsyncStorage formatına çevir
+        const times = data.result.map(item => item.saat);
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Mevcut prayer_times.json'u oku
+        const existingData = await AsyncStorage.getItem('prayer_times.json');
+        const prayerData = existingData ? JSON.parse(existingData) : {};
+        
+        // Şehir için veriyi ekle/güncelle
+        if (!prayerData[cityLower]) {
+          prayerData[cityLower] = {};
+        }
+        prayerData[cityLower][today] = times;
+        
+        // Geri kaydet
+        await AsyncStorage.setItem('prayer_times.json', JSON.stringify(prayerData));
+        console.log('Vakitler AsyncStorage\'e kaydedildi:', cityLower);
+        
+        return { success: true, data: data.result };
       } else {
-        Alert.alert('Hata', 'Namaz vakitleri alınamadı');
+        throw new Error('Namaz vakitleri alınamadı');
       }
     } catch (error) {
       console.error('Prayer Times Error:', error);
-      Alert.alert('Hata', 'Namaz vakitleri alınırken bir hata oluştu: ' + error.message);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const syncAllCities = async () => {
+    setSyncingPrayers(true);
+    setLoadingPrayer(true);
+    
+    try {
+      let successCount = 0;
+      let failCount = 0;
+      
+      Alert.alert('Eşitleme Başladı', `${cities.length} şehir için namaz vakitleri çekiliyor. Bu işlem yaklaşık 4-5 dakika sürebilir.`);
+      
+      for (let i = 0; i < cities.length; i++) {
+        const city = cities[i];
+        console.log(`Eşitleniyor: ${city} (${i + 1}/${cities.length})`);
+        
+        const result = await fetchPrayerTimes(city);
+        
+        if (result.success) {
+          successCount++;
+          // Eğer bu seçili şehirse ekrana yansıt
+          if (city === selectedCity) {
+            setPrayerTimes(result.data);
+          }
+        } else {
+          failCount++;
+        }
+        
+        // API rate limit için 3 saniye bekleme
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      Alert.alert(
+        'Eşitleme Tamamlandı!', 
+        `Başarılı: ${successCount} şehir\nBaşarısız: ${failCount} şehir`
+      );
+      
+      // Seçili şehrin vakitlerini yükle
+      await loadPrayerTimesFromStorage(selectedCity);
+      
+    } catch (error) {
+      console.error('Toplu eşitleme hatası:', error);
+      Alert.alert('Hata', 'Eşitleme sırasında bir hata oluştu.');
     } finally {
+      setSyncingPrayers(false);
       setLoadingPrayer(false);
     }
   };
 
-  const handleCityChange = (city) => {
+  const handleCityChange = async (city) => {
     setSelectedCity(city);
     setShowCityDropdown(false);
-    fetchPrayerTimes(city);
+    await saveCity(city);
+    loadPrayerTimesFromStorage(city);
   };
 
   const getNextPrayer = () => {
@@ -297,7 +461,7 @@ export default function App() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Namaz Vakti</Text>
+        <Text style={styles.headerTitle}>Namaz Vakitleri</Text>
         <TouchableOpacity onPress={() => setMenuOpen(!menuOpen)} style={styles.menuButton}>
           <Menu color="white" size={24} />
         </TouchableOpacity>
@@ -311,7 +475,7 @@ export default function App() {
           onPress={() => setMenuOpen(false)}
         >
           <View style={styles.menuContainer}>
-            {['Home', 'Cards', 'Reports', 'Vakitler'].map(page => (
+            {['Home', 'Cards', 'Reports', 'Vakitler', 'Ayarlar'].map(page => (
               <TouchableOpacity
                 key={page}
                 onPress={() => navigateTo(page)}
@@ -636,7 +800,6 @@ export default function App() {
 
           {nextPrayer && (
             <View style={styles.nextPrayerBox}>
-              <Text style={styles.nextPrayerTitle}>Yaklaşan Vakit</Text>
               <Text style={styles.nextPrayerName}>{nextPrayer.name}</Text>
               <Text style={styles.nextPrayerTime}>{nextPrayer.time}</Text>
               <Text style={styles.nextPrayerCountdown}>
@@ -685,6 +848,40 @@ export default function App() {
                 })}
               </View>
             )}
+          </View>
+          
+          <TouchableOpacity
+            onPress={syncAllCities}
+            style={[styles.syncButtonBottom, syncingPrayers && styles.syncButtonDisabled]}
+            disabled={syncingPrayers}
+          >
+            <Text style={styles.syncButtonText}>
+              {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
+            </Text>
+          </TouchableOpacity>
+          <Text></Text>
+          <Text></Text>
+          <Text></Text>
+          <Text>created by yasinyilmazzz</Text>
+        </ScrollView>
+      )}
+      {/* Ayarlar Page */}
+      {currentPage === 'Ayarlar' && (
+        <ScrollView style={styles.content}>
+          <View style={styles.card}>
+            <Text style={styles.settingsTitle}>Namaz Vakitleri</Text>
+            <Text style={styles.settingsDescription}>
+              Tüm şehirler için güncel namaz vakitlerini günceller. Bu işlem birkaç dakika sürebilir.
+            </Text>
+            <TouchableOpacity
+              onPress={() => syncAllCities()}
+              style={[styles.syncButton, syncingPrayers && styles.syncButtonDisabled]}
+              disabled={syncingPrayers}
+            >
+              <Text style={styles.syncButtonText}>
+                {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       )}
@@ -1049,5 +1246,47 @@ const styles = StyleSheet.create({
   tableCellTextPassed: {
     color: '#FEF2F2',
     textDecorationLine: 'line-through'
+  },
+  settingsTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#1F2937'
+  },
+  settingsDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
+    lineHeight: 20
+  },
+  syncButton: {
+    backgroundColor: '#2563EB',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  syncButtonDisabled: {
+    backgroundColor: '#9CA3AF'
+  },
+  syncButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  settingsNote: {
+    fontSize: 14,
+    color: '#374151',
+    textAlign: 'center',
+    fontWeight: '500'
+  },
+  syncButtonBottom: {
+    backgroundColor: '#2563EB',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 16,
+    marginHorizontal: 16
   }
 });
