@@ -1,6 +1,10 @@
 const https = require('https');
-const fs = require('fs');
-const path = require('path');
+const { MMKV } = require('react-native-mmkv');
+
+// MMKV instance oluştur
+const prayerStorage = new MMKV({
+    id: 'prayer-times-storage'
+});
 
 // Şehirler listesi
 const cities = ["Adana","Adıyaman","Afyonkarahisar","Ağrı","Aksaray","Amasya","Ankara","Antalya","Ardahan","Artvin","Aydın","Balıkesir","Bartın","Batman","Bayburt","Bilecik","Bingöl","Bitlis","Bolu","Burdur","Bursa","Çanakkale","Çankırı","Çorum","Denizli","Diyarbakır","Düzce","Edirne","Elazığ","Erzincan","Erzurum","Eskişehir","Gaziantep","Giresun","Gümüşhane","Hakkari","Hatay","Iğdır","Isparta","İstanbul","İzmir","Kahramanmaraş","Karabük","Karaman","Kars","Kastamonu","Kayseri","Kilis","Kırıkkale","Kırklareli","Kırşehir","Kocaeli","Konya","Kütahya","Malatya","Manisa","Mardin","Mersin","Muğla","Muş","Nevşehir","Niğde","Ordu","Osmaniye","Rize","Sakarya","Samsun","Şanlıurfa","Siirt","Sinop","Sivas","Şırnak","Tekirdağ","Tokat","Trabzon","Tunceli","Uşak","Van","Yalova","Yozgat","Zonguldak"];
@@ -48,12 +52,10 @@ function formatPrayerTimes(timesData) {
     }
 
     const times = timesData.times;
-    console.log('Times structure:', typeof times);
     
     if (typeof times === 'object' && times !== null) {
         Object.keys(times).forEach(date => {
             const dayTimes = times[date];
-            console.log(`Processing date: ${date}`, dayTimes);
             
             if (Array.isArray(dayTimes) && dayTimes.length > 0) {
                 // Direkt array'i al - zaten doğru sırada: [imsak, gunes, ogle, ikindi, aksam, yatsi]
@@ -68,6 +70,80 @@ function formatPrayerTimes(timesData) {
     }
 
     return formattedData;
+}
+
+// MMKV'ye veri kaydet
+function saveToMMKV(data) {
+    try {
+        prayerStorage.set('prayer_times', JSON.stringify(data));
+        prayerStorage.set('last_sync_date', new Date().toISOString());
+        console.log('✅ Data successfully saved to MMKV');
+        return true;
+    } catch (error) {
+        console.error('❌ MMKV save error:', error);
+        throw error;
+    }
+}
+
+// MMKV'den veri oku
+function readFromMMKV() {
+    try {
+        const data = prayerStorage.getString('prayer_times');
+        const lastSync = prayerStorage.getString('last_sync_date');
+        
+        if (data) {
+            console.log('✅ Data loaded from MMKV');
+            console.log(`📅 Last sync: ${lastSync}`);
+            return JSON.parse(data);
+        }
+        return null;
+    } catch (error) {
+        console.error('❌ MMKV read error:', error);
+        return null;
+    }
+}
+
+// Şehir bazlı MMKV kaydetme (opsiyonel - daha güvenli)
+function saveToMMKVByCity(data) {
+    try {
+        Object.keys(data).forEach(city => {
+            prayerStorage.set(`prayer_${city}`, JSON.stringify(data[city]));
+        });
+        
+        // Şehir listesini de kaydet
+        prayerStorage.set('prayer_cities', JSON.stringify(Object.keys(data)));
+        prayerStorage.set('last_sync_date', new Date().toISOString());
+        
+        console.log('✅ All cities saved to MMKV separately');
+        return true;
+    } catch (error) {
+        console.error('❌ MMKV city save error:', error);
+        throw error;
+    }
+}
+
+// Şehir bazlı MMKV'den okuma
+function readFromMMKVByCity() {
+    try {
+        const citiesJson = prayerStorage.getString('prayer_cities');
+        if (!citiesJson) return null;
+
+        const cities = JSON.parse(citiesJson);
+        const results = {};
+
+        cities.forEach(city => {
+            const cityData = prayerStorage.getString(`prayer_${city}`);
+            if (cityData) {
+                results[city] = JSON.parse(cityData);
+            }
+        });
+
+        console.log('✅ Data loaded from MMKV by city');
+        return results;
+    } catch (error) {
+        console.error('❌ MMKV city read error:', error);
+        return null;
+    }
 }
 
 // Ana işlem fonksiyonu
@@ -95,7 +171,7 @@ async function getPrayerTimes() {
             console.log(`Found ID for ${city}: ${cityId}`);
 
             // İkinci request: Namaz vakitlerini al
-            const timesUrl = `https://vakit.vercel.app/api/timesForPlace?id=${cityId}&date=${dateToday}&days=1000&timezoneOffset=180`;
+            const timesUrl = `https://vakit.vercel.app/api/timesForPlace?id=${cityId}&date=${dateToday}&days=30&timezoneOffset=180`;
             console.log(`Times URL: ${timesUrl}`);
             
             const timesData = await makeRequest(timesUrl);
@@ -126,19 +202,13 @@ async function getPrayerTimes() {
             }
         }
 
-        // Dosya yolunu oluştur
-        const outputPath = path.join('.', 'src', 'sources', 'prayer_times.json');
-        const outputDir = path.dirname(outputPath);
+        // MMKV'ye kaydet (tüm veriyi tek seferde)
+        saveToMMKV(results);
         
-        // Klasör yoksa oluştur
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-            console.log(`📁 Created directory: ${outputDir}`);
-        }
+        // VEYA şehir bazlı kaydet (daha güvenli)
+        // saveToMMKVByCity(results);
         
-        // JSON dosyasına yaz
-        fs.writeFileSync(outputPath, JSON.stringify(results, null, 2));
-        console.log(`\n🎉 Data successfully written to ${outputPath}`);
+        console.log(`\n🎉 Data successfully saved to MMKV`);
         console.log(`📊 Total cities processed: ${Object.keys(results).length}`);
         
         // Toplam gün sayısını göster
@@ -159,10 +229,48 @@ async function getPrayerTimes() {
     }
 }
 
+// Cache'den okuma fonksiyonu
+function getCachedPrayerTimes() {
+    return readFromMMKV();
+    // VEYA şehir bazlı okuma için:
+    // return readFromMMKVByCity();
+}
+
+// Sync durumunu kontrol et
+function getSyncStatus() {
+    const lastSync = prayerStorage.getString('last_sync_date');
+    const hasData = prayerStorage.contains('prayer_times');
+    
+    return {
+        hasData,
+        lastSync: lastSync || 'Never',
+        citiesCount: hasData ? Object.keys(JSON.parse(prayerStorage.getString('prayer_times'))).length : 0
+    };
+}
+
+// Cache'i temizle
+function clearCache() {
+    try {
+        prayerStorage.clearAll();
+        console.log('✅ MMKV cache cleared');
+        return true;
+    } catch (error) {
+        console.error('❌ Clear cache error:', error);
+        throw error;
+    }
+}
+
 // Programı çalıştır
 getPrayerTimes()
     .then((data) => {
         console.log('\n✅ Process completed successfully!');
+        
+        // Sync durumunu göster
+        const status = getSyncStatus();
+        console.log(`\n📊 Sync Status:`);
+        console.log(`   Has Data: ${status.hasData}`);
+        console.log(`   Last Sync: ${status.lastSync}`);
+        console.log(`   Cities Count: ${status.citiesCount}`);
         
         // Örnek çıktıyı göster
         const sampleCity = Object.keys(data)[0];
@@ -181,3 +289,13 @@ getPrayerTimes()
     .catch((error) => {
         console.error('💥 Process failed:', error);
     });
+
+// Diğer modüllerden kullanım için export
+module.exports = {
+    getPrayerTimes,
+    getCachedPrayerTimes,
+    getSyncStatus,
+    clearCache,
+    saveToMMKV,
+    readFromMMKV
+};
