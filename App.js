@@ -11,12 +11,13 @@ import {
   Alert,
   Platform
 } from 'react-native';
-import { Menu, Plus, Minus, Trash2, Download, X, Check, Edit2 } from 'lucide-react-native';
+import { Menu, Plus, Minus, Trash2, Download, X, Check, Edit2, Cloud } from 'lucide-react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
 import localPrayerTimes from './src/sources/prayer_times.json';
 import RandomVerseFetcher, { fetchRandomVerseFunction } from './src/components/RandomVerseFetcher';
 
@@ -31,7 +32,7 @@ Notifications.setNotificationHandler({
 
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState('Vakitler');
+  const [currentPage, setCurrentPage] = useState('Home');
   const [cards, setCards] = useState([]);
   const [selectedCard, setSelectedCard] = useState('New');
   const [showTitleInput, setShowTitleInput] = useState(false);
@@ -48,7 +49,7 @@ export default function App() {
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [syncingPrayers, setSyncingPrayers] = useState(false);
-  // Random verse state (from src/components/RandomVerseFetcher.js)
+  // Random verse state
   const [verseLoading, setVerseLoading] = useState(false);
   const [verseData, setVerseData] = useState({
     surah_name: '',
@@ -60,6 +61,11 @@ export default function App() {
   const [editingCardId, setEditingCardId] = useState(null);
   const [editInputType, setEditInputType] = useState('add');
   const [editValue, setEditValue] = useState('');
+  
+  // Weather state
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherData, setWeatherData] = useState(null);
+  const [locationError, setLocationError] = useState(null);
 
   const cities = ["Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", "Ardahan", "Artvin", "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul", "İzmir", "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kilis", "Kırıkkale", "Kırklareli", "Kırşehir", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Mardin", "Mersin", "Muğla", "Muş", "Nevşehir", "Niğde", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Şanlıurfa", "Siirt", "Sinop", "Sivas", "Şırnak", "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"];
 
@@ -78,6 +84,7 @@ export default function App() {
   React.useEffect(() => {
     if (currentPage === 'Home') {
       fetchAndSetRandomVerse();
+      fetchWeatherData();
     }
   }, [currentPage]);
 
@@ -98,6 +105,50 @@ export default function App() {
       console.error('Random verse fetch error:', err);
     } finally {
       setVerseLoading(false);
+    }
+  };
+
+  const fetchWeatherData = async () => {
+    try {
+      setWeatherLoading(true);
+      setLocationError(null);
+
+      // Konum izni iste
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationError('Konum izni reddedildi');
+        setWeatherLoading(false);
+        return;
+      }
+
+      // Mevcut konumu al
+      const location = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = location.coords;
+
+      // Hava durumu API'sine istek at
+      const response = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code`
+      );
+
+      if (!response.ok) {
+        throw new Error('Hava durumu verileri alınamadı');
+      }
+
+      const data = await response.json();
+      
+      if (data.current && data.current.temperature_2m !== undefined) {
+        setWeatherData({
+          temperature: data.current.temperature_2m,
+          weatherCode: data.current.weather_code
+        });
+      } else {
+        throw new Error('Veri formatı hatalı');
+      }
+    } catch (error) {
+      console.error('Hava durumu hatası:', error);
+      setLocationError(error.message);
+    } finally {
+      setWeatherLoading(false);
     }
   };
 
@@ -145,7 +196,6 @@ export default function App() {
             trigger: null,
           });
 
-          // Bu vakit için bugün bildirim gönderildi olarak işaretle
           await AsyncStorage.setItem(`notification_${prayer.vakit}_${currentTime}`, 'true');
         }
       }
@@ -154,11 +204,9 @@ export default function App() {
 
   const initializePrayerTimes = async () => {
     try {
-      // İlk açılış kontrolü için bir flag kullan
       const initialized = await AsyncStorage.getItem('prayer_times_initialized');
 
       if (!initialized) {
-        // İlk kez açılıyorsa yerel dosyadan her şehri ayrı kaydet
         console.log('İlk açılış: Namaz vakitleri yükleniyor...');
 
         for (const [city, dates] of Object.entries(localPrayerTimes)) {
@@ -170,7 +218,6 @@ export default function App() {
           }
         }
 
-        // İlk açılış flag'ini kaydet
         await AsyncStorage.setItem('prayer_times_initialized', 'true');
         console.log('Tüm namaz vakitleri yüklendi');
         Alert.alert('Hoş Geldiniz!', 'Namaz vakitleri yüklendi. Güncel vakitler için "Vakitleri Eşitle" butonunu kullanabilirsiniz.');
@@ -189,7 +236,6 @@ export default function App() {
         setSelectedCity(savedCity);
         console.log('Kaydedilmiş şehir yüklendi:', savedCity);
       } else {
-        // İlk kez açılıyorsa İstanbul'u kaydet
         await saveCity('İstanbul');
       }
     } catch (error) {
@@ -233,7 +279,7 @@ export default function App() {
       }
 
       const dates = JSON.parse(data);
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD formatı
+      const today = new Date().toISOString().split('T')[0];
 
       if (dates[today]) {
         const times = dates[today];
@@ -290,18 +336,14 @@ export default function App() {
       const data = await response.json();
 
       if (data.success && data.result && data.result.length > 0) {
-        // API'den gelen veriyi AsyncStorage formatına çevir
         const times = data.result.map(item => item.saat);
         const today = new Date().toISOString().split('T')[0];
 
-        // Şehir için mevcut veriyi oku
         const existingData = await AsyncStorage.getItem(`prayer_times_${cityLower}`);
         const dates = existingData ? JSON.parse(existingData) : {};
 
-        // Bugünün verisini ekle/güncelle
         dates[today] = times;
 
-        // Geri kaydet (her şehir ayrı dosya)
         await AsyncStorage.setItem(`prayer_times_${cityLower}`, JSON.stringify(dates));
         console.log('Vakitler AsyncStorage\'e kaydedildi:', cityLower);
 
@@ -333,7 +375,6 @@ export default function App() {
 
         if (result.success) {
           successCount++;
-          // Eğer bu seçili şehirse ekrana yansıt
           if (city === selectedCity) {
             setPrayerTimes(result.data);
           }
@@ -341,7 +382,6 @@ export default function App() {
           failCount++;
         }
 
-        // API rate limit için 3 saniye bekleme
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
 
@@ -350,7 +390,6 @@ export default function App() {
         `Başarılı: ${successCount} şehir\nBaşarısız: ${failCount} şehir`
       );
 
-      // Seçili şehrin vakitlerini yükle
       await loadPrayerTimesFromStorage(selectedCity);
 
     } catch (error) {
@@ -395,7 +434,6 @@ export default function App() {
       }
     }
 
-    // Eğer tüm vakitler geçtiyse, yarının ilk vakti (İmsak)
     if (prayerTimes[0]) {
       const [hours, minutes] = prayerTimes[0].saat.split(':').map(Number);
       const prayerMinutes = hours * 60 + minutes;
@@ -608,44 +646,85 @@ export default function App() {
 
       {/* Home Page */}
       {currentPage === 'Home' && (
-        <View style={styles.centerContainer}>
-          {nextPrayer && (
-            <View style={[styles.nextPrayerBox, { width: '90%' }]}>
-              <Text style={styles.nextPrayerTitle}>{selectedCity.toUpperCase()}</Text>
-              <Text style={styles.nextPrayerName}>{nextPrayer.name}</Text>
-              <Text style={styles.nextPrayerTime}>{nextPrayer.time}</Text>
-              <Text style={[styles.nextPrayerCountdown, { color: '#6d1a0cff' }]}>
-                {nextPrayer.hours > 0 && `${nextPrayer.hours} saat `}
-                {nextPrayer.minutes} dakika {nextPrayer.seconds} saniye
-              </Text>
-            </View>
-          )}
-          {/* Random verse card (from src/components/RandomVerseFetcher.js) */}
-          <View style={[styles.cardSurah, { marginTop: 16 }]}>
-            {verseLoading ? (
-              <Text style={styles.loadingText}>Ayet yükleniyor...</Text>
-            ) : (
-              <>
-                <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
-                  {verseData.surah_name} {verseData.surah_id ? `(${verseData.surah_id})` : ''}
+        <ScrollView style={styles.content}>
+          <View style={styles.homeContentContainer}>
+            {nextPrayer && (
+              <View style={[styles.nextPrayerBox, { width: '100%' }]}>
+                <Text style={styles.nextPrayerTitle}>{selectedCity.toUpperCase()}</Text>
+                <Text style={styles.nextPrayerName}>{nextPrayer.name}</Text>
+                <Text style={styles.nextPrayerTime}>{nextPrayer.time}</Text>
+                <Text style={[styles.nextPrayerCountdown, { color: '#6d1a0cff' }]}>
+                  {nextPrayer.hours > 0 && `${nextPrayer.hours} saat `}
+                  {nextPrayer.minutes} dakika {nextPrayer.seconds} saniye
                 </Text>
-                <Text style={{ marginTop: 8 }}>Ayet Numarası: {verseData.verse_number}</Text>
-                <Text style={{ marginTop: 10, fontSize: 16, textAlign: 'right' }}>
-                  {verseData.verse_simplified}
-                </Text>
-                <Text style={{ marginTop: 10, fontStyle: 'italic' }}>{verseData.translation}</Text>
-
-                {/* <TouchableOpacity
-                  onPress={fetchAndSetRandomVerse}
-                  style={[styles.syncButton, { marginTop: 12 }]}
-                >
-                  <Text style={styles.syncButtonText}>Yeni Ayet Getir</Text>
-                </TouchableOpacity> */}
-              </>
+              </View>
             )}
-          </View>
+            
+            {/* Random verse card */}
+            <View style={[styles.cardSurah, { marginTop: 16 }]}>
+              {verseLoading ? (
+                <Text style={styles.loadingText}>Bismillahirrahmanirrahim...</Text>
+              ) : (
+                <>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
+                    {verseData.surah_name} {verseData.surah_id ? `(${verseData.surah_id})` : ''}
+                  </Text>
+                  <Text style={{ marginTop: 8 }}> {verseData.verse_number}. Ayet</Text>
+                  <Text style={{ marginTop: 10, fontSize: 16, textAlign: 'right' }}>
+                    {verseData.verse_simplified}
+                  </Text>
+                  <Text style={{ marginTop: 10, fontStyle: 'italic' }}>{verseData.translation}</Text>
+                </>
+              )}
+            </View>
 
-        </View>
+            {/* Weather card */}
+            <View style={[styles.weatherCard, { marginTop: 16 }]}>
+              {weatherLoading ? (
+                <View style={styles.weatherLoadingContainer}>
+                  <Cloud color="white" size={40} />
+                  <Text style={styles.weatherLoadingText}>Hava durumu yükleniyor...</Text>
+                </View>
+              ) : locationError ? (
+                <View style={styles.weatherErrorContainer}>
+                  <Cloud color="white" size={40} />
+                  <Text style={styles.weatherErrorText}>{locationError}</Text>
+                  <TouchableOpacity
+                    onPress={fetchWeatherData}
+                    style={styles.weatherRetryButton}
+                  >
+                    <Text style={styles.weatherRetryText}>Tekrar Dene</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : weatherData ? (
+                <View style={styles.weatherInfoContainer}>
+                  <Cloud color="white" size={50} />
+                  <Text style={styles.weatherTitle}>Hava Durumu</Text>
+                  <Text style={styles.weatherTemperature}>
+                    {weatherData.temperature.toFixed(1)}°C
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.weatherErrorContainer}>
+                  <Cloud color="white" size={40} />
+                  <Text style={styles.weatherErrorText}>Hava durumu verisi yüklenemedi</Text>
+                  <TouchableOpacity
+                    onPress={fetchWeatherData}
+                    style={styles.weatherRetryButton}
+                  >
+                    <Text style={styles.weatherRetryText}>Tekrar Dene</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+            <View>  
+              <Text>  </Text>
+              <Text>  </Text>
+              <Text>  </Text>
+              <Text style={{ fontSize: 12 }}>Namaz Vakti v1.0 @2025</Text>
+            </View>
+          </View>
+        </ScrollView>
       )}
 
       {/* Cards Page */}
@@ -893,6 +972,7 @@ export default function App() {
           )}
         </ScrollView>
       )}
+      
       {/* Vakitler Page */}
       {currentPage === 'Vakitler' && (
         <ScrollView style={styles.content}>
@@ -980,8 +1060,15 @@ export default function App() {
               {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
             </Text>
           </TouchableOpacity>
+          <View>
+            <Text>  </Text>
+            <Text>  </Text>
+            <Text>  </Text>
+            <Text style={{ fontSize: 12 }}>Namaz Vakti v1.0 @2025</Text>
+          </View>
         </ScrollView>
       )}
+      
       {/* Ayarlar Page */}
       {currentPage === 'Ayarlar' && (
         <ScrollView style={styles.content}>
@@ -999,7 +1086,12 @@ export default function App() {
                 {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
               </Text>
             </TouchableOpacity>
-
+          </View>
+             <View>
+            <Text>  </Text>
+            <Text>  </Text>
+            <Text>  </Text>
+            <Text style={{ fontSize: 12 }}>Namaz Vakti v1.0 @2025</Text>
           </View>
         </ScrollView>
       )}
@@ -1016,6 +1108,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  homeContentContainer: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 20
   },
   appName: {
     fontSize: 32,
@@ -1153,6 +1250,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D1D5DB'
   },
+  dropdown: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#D1D5DB'
+  },
   dropdownText: {
     fontSize: 16
   },
@@ -1182,7 +1287,7 @@ const styles = StyleSheet.create({
     elevation: 3
   },
   cardSurah: {
-    width: '90%',
+    width: '100%',
     backgroundColor: '#d17a08ff',
     borderRadius: 10,
     padding: 16,
@@ -1191,6 +1296,79 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3
+  },
+  weatherCard: {
+    width: '100%',
+    backgroundColor: '#3B82F6',
+    borderRadius: 10,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 150
+  },
+  weatherLoadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20
+  },
+  weatherLoadingText: {
+    color: 'white',
+    fontSize: 16,
+    marginTop: 12
+  },
+  weatherErrorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20
+  },
+  weatherErrorText: {
+    color: 'white',
+    fontSize: 16,
+    marginTop: 12,
+    textAlign: 'center'
+  },
+  weatherRetryButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 12
+  },
+  weatherRetryText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  weatherInfoContainer: {
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  weatherTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 12
+  },
+  weatherTemperature: {
+    color: 'white',
+    fontSize: 48,
+    fontWeight: 'bold',
+    marginTop: 8
+  },
+  weatherRefreshButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 16
+  },
+  weatherRefreshText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600'
   },
   addButton: {
     padding: 32,
@@ -1258,41 +1436,6 @@ const styles = StyleSheet.create({
   },
   subtractActionButton: {
     backgroundColor: '#DC2626'
-  },
-  cardItem: {
-    backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 24,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    position: 'relative'
-  },
-  deleteButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    padding: 8
-  },
-  cardItemTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 8,
-    paddingRight: 40
-  },
-  cardItemTotal: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2563EB'
-  },
-  cardItemEntries: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 8
   },
   emptyText: {
     textAlign: 'center',
