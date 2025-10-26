@@ -19,6 +19,7 @@ import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import localPrayerTimes from './src/sources/prayer_times.json';
 import RandomVerseFetcher, { fetchRandomVerseFunction } from './src/components/RandomVerseFetcher';
 import HomePage from './src/pages/HomePage';
@@ -78,6 +79,7 @@ export default function App() {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherData, setWeatherData] = useState(null);
   const [locationError, setLocationError] = useState(null);
+  const [backgroundUri, setBackgroundUri] = useState(null);
 
   // Page-related handlers (moved implementations into page handler modules)
   const fetchAndSetRandomVerse = createFetchAndSetRandomVerse({ setVerseLoading, setVerseData });
@@ -131,9 +133,78 @@ export default function App() {
       await requestNotificationPermissions();
       await initializePrayerTimes();
       await loadSavedCity();
+      await loadSavedBackground();
     };
     initialize();
   }, []);
+
+  const loadSavedBackground = async () => {
+    try {
+      const uri = await AsyncStorage.getItem('background_uri');
+      if (uri) {
+        setBackgroundUri(uri);
+      }
+    } catch (err) {
+      console.warn('Arka plan yüklenemedi:', err);
+    }
+  };
+
+  const selectAndSetBackground = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('İzin gerekli', 'Galeriden resim seçebilmek için izin gereklidir.');
+        return;
+      }
+
+      // Build options defensively so we don't access undefined properties on older/newer SDKs
+      const mediaTypesOption = (ImagePicker.MediaType && ImagePicker.MediaType.Images)
+        || (ImagePicker.MediaTypeOptions && ImagePicker.MediaTypeOptions.Images);
+
+      const pickerOptions = {
+        allowsEditing: true,
+        quality: 0.8,
+      };
+
+      if (mediaTypesOption) pickerOptions.mediaTypes = mediaTypesOption;
+
+      const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
+
+      // Handle both legacy and new result shapes.
+      // Legacy: { cancelled: false, uri }
+      // New: { canceled: false, assets: [{ uri, ... }] }
+      let uri;
+      if (typeof result.cancelled !== 'undefined') {
+        // legacy
+        if (!result.cancelled && result.uri) uri = result.uri;
+      } else if (typeof result.canceled !== 'undefined') {
+        // new
+        if (!result.canceled && Array.isArray(result.assets) && result.assets[0] && result.assets[0].uri) {
+          uri = result.assets[0].uri;
+        }
+      }
+
+      if (uri) {
+        setBackgroundUri(uri);
+        await AsyncStorage.setItem('background_uri', uri);
+      } else {
+        // user cancelled or unexpected shape; do nothing
+        return;
+      }
+    } catch (err) {
+      console.error('Arka plan seçilemedi:', err);
+      Alert.alert('Hata', 'Arka plan seçilirken bir hata oluştu.');
+    }
+  };
+
+  const resetBackgroundToDefault = async () => {
+    try {
+      await AsyncStorage.removeItem('background_uri');
+      setBackgroundUri(null);
+    } catch (err) {
+      console.warn('Arka plan sıfırlanamadı:', err);
+    }
+  };
 
   // Şehir değiştiğinde veya sayfa Vakitler'e geçtiğinde vakitleri yükle
   React.useEffect(() => {
@@ -378,7 +449,7 @@ export default function App() {
   const selectedCardData = cards.find(c => c.id === selectedCard);
 
   return (
-    <ImageBackground source={require('./assets/bg_night.jpg')} style={styles.backgroundImage} resizeMode="cover">
+    <ImageBackground source={backgroundUri ? { uri: backgroundUri } : require('./assets/bg_night.jpg')} style={styles.backgroundImage} resizeMode="cover">
       <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
@@ -609,7 +680,7 @@ export default function App() {
       
       {/* Ayarlar Page */}
       {currentPage === 'Ayarlar' && (
-        <SettingsPage styles={styles} syncAllCities={syncAllCities} syncingPrayers={syncingPrayers} />
+        <SettingsPage styles={styles} syncAllCities={syncAllCities} syncingPrayers={syncingPrayers} backgroundUri={backgroundUri} selectBackground={selectAndSetBackground} resetBackground={resetBackgroundToDefault} />
       )}
     </View>
     </ImageBackground>
