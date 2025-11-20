@@ -9,6 +9,7 @@ import {
   Modal,
   Dimensions,
   Alert,
+  ImageBackground,
   Platform
 } from 'react-native';
 import { Menu, Plus, Minus, Trash2, Download, X, Check, Edit2, Cloud } from 'lucide-react-native';
@@ -19,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import localPrayerTimes from './src/sources/prayer_times.json';
+import * as ImagePicker from 'expo-image-picker';
 import RandomVerseFetcher, { fetchRandomVerseFunction } from './src/components/RandomVerseFetcher';
 
 // Bildirim ayarları
@@ -66,7 +68,7 @@ export default function App() {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherData, setWeatherData] = useState(null);
   const [locationError, setLocationError] = useState(null);
-
+  const [backgroundUri, setBackgroundUri] = useState(null);
   const cities = ["Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", "Ardahan", "Artvin", "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul", "İzmir", "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kilis", "Kırıkkale", "Kırklareli", "Kırşehir", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Mardin", "Mersin", "Muğla", "Muş", "Nevşehir", "Niğde", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Şanlıurfa", "Siirt", "Sinop", "Sivas", "Şırnak", "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"];
 
   const prayerNames = ["İmsak", "Güneş", "Öğle", "İkindi", "Akşam", "Yatsı"];
@@ -158,6 +160,7 @@ export default function App() {
       await requestNotificationPermissions();
       await initializePrayerTimes();
       await loadSavedCity();
+      await loadSavedBackground();
     };
     initialize();
   }, []);
@@ -252,6 +255,45 @@ export default function App() {
     }
   };
 
+  const loadSavedBackground = async () => {
+  try {
+    const uri = await AsyncStorage.getItem('background_uri');
+    if (uri) setBackgroundUri(uri);
+  } catch (err) {
+    console.warn('Arka plan yüklenemedi:', err);
+  }
+};
+
+const selectAndSetBackground = async () => {
+  try {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('İzin gerekli', 'Galeriden resim seçebilmek için izin gereklidir.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setBackgroundUri(result.assets[0].uri);
+      await AsyncStorage.setItem('background_uri', result.assets[0].uri);
+    }
+  } catch (err) {
+    console.error('Arka plan seçilemedi:', err);
+  }
+};
+
+const resetBackgroundToDefault = async () => {
+  try {
+    await AsyncStorage.removeItem('background_uri');
+    setBackgroundUri(null);
+  } catch (err) {
+    console.warn('Arka plan sıfırlanamadı:', err);
+  }
+};
+
   const navigateTo = (page) => {
     setCurrentPage(page);
     setMenuOpen(false);
@@ -274,7 +316,24 @@ export default function App() {
       const data = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
 
       if (!data) {
-        Alert.alert('Uyarı', 'Namaz vakitleri henüz eşitlenmemiş. Lütfen Ayarlar sayfasından "Vakitleri Eşitle" butonuna basın.');
+        // Veri yok, API'den çek
+        console.log(`${city} için veri yok, API'den çekiliyor...`);
+        await fetchPrayerTimes(city);
+        // Tekrar yükle
+        const newData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
+        if (newData) {
+          const dates = JSON.parse(newData);
+          const today = new Date().toISOString().split('T')[0];
+          if (dates[today]) {
+            const times = dates[today];
+            const formattedTimes = times.map((time, index) => ({
+              vakit: prayerNames[index],
+              saat: time
+            }));
+            setPrayerTimes(formattedTimes);
+          }
+        }
+        setLoadingPrayer(false);
         return;
       }
 
@@ -290,11 +349,25 @@ export default function App() {
         setPrayerTimes(formattedTimes);
         console.log('Vakitler AsyncStorage\'den yüklendi:', cityKey, today);
       } else {
-        Alert.alert('Uyarı', `${city} için bugünün vakitleri bulunamadı. Lütfen vakitleri eşitleyin.`);
+        // Bugünün verisi yok, API'den çek
+        console.log(`${city} için bugünün verisi yok, API'den çekiliyor...`);
+        await fetchPrayerTimes(city);
+        // Tekrar yükle
+        const newData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
+        if (newData) {
+          const newDates = JSON.parse(newData);
+          if (newDates[today]) {
+            const times = newDates[today];
+            const formattedTimes = times.map((time, index) => ({
+              vakit: prayerNames[index],
+              saat: time
+            }));
+            setPrayerTimes(formattedTimes);
+          }
+        }
       }
     } catch (error) {
       console.error('Storage\'dan veri yükleme hatası:', error);
-      Alert.alert('Hata', 'Vakitler yüklenirken bir hata oluştu.');
     } finally {
       setLoadingPrayer(false);
     }
@@ -405,7 +478,35 @@ export default function App() {
     setSelectedCity(city);
     setShowCityDropdown(false);
     await saveCity(city);
-    loadPrayerTimesFromStorage(city);
+    
+    // Önce storage'dan yükle
+    await loadPrayerTimesFromStorage(city);
+    
+    // Eğer bugünün verisi yoksa, API'den çek
+    const today = new Date().toISOString().split('T')[0];
+    const cityKey = city.toLowerCase()
+      .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
+      .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c');
+    
+    try {
+      const storedData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
+      if (storedData) {
+        const dates = JSON.parse(storedData);
+        if (!dates[today]) {
+          // Bugünün verisi yok, API'den çek
+          console.log(`${city} için bugünün verisi yok, API'den çekiliyor...`);
+          await fetchPrayerTimes(city);
+          await loadPrayerTimesFromStorage(city);
+        }
+      } else {
+        // Hiç veri yok, API'den çek
+        console.log(`${city} için hiç veri yok, API'den çekiliyor...`);
+        await fetchPrayerTimes(city);
+        await loadPrayerTimesFromStorage(city);
+      }
+    } catch (error) {
+      console.error('Şehir değiştirme hatası:', error);
+    }
   };
 
   const getNextPrayer = () => {
@@ -614,10 +715,14 @@ export default function App() {
   const selectedCardData = cards.find(c => c.id === selectedCard);
 
   return (
+    <ImageBackground 
+    source={backgroundUri ? { uri: backgroundUri } : require('./assets/bg_night.jpg')} 
+    style={styles.backgroundImage} 
+    resizeMode="cover">
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Kart Takip</Text>
+        <Text style={styles.headerTitle}>Namaz Vakitleri</Text>
         <TouchableOpacity onPress={() => setMenuOpen(!menuOpen)} style={styles.menuButton}>
           <Menu color="white" size={24} />
         </TouchableOpacity>
@@ -631,13 +736,19 @@ export default function App() {
           onPress={() => setMenuOpen(false)}
         >
           <View style={styles.menuContainer}>
-            {['Home', 'Cards', 'Reports', 'Vakitler', 'Ayarlar'].map(page => (
+            {[
+                { key: 'Home', label: 'Ana Sayfa' },
+                { key: 'Cards', label: 'Dua ve Zikir' },
+                { key: 'Reports', label: 'Raporlar' },
+                { key: 'Vakitler', label: 'Namaz Vakitleri' },
+                { key: 'Ayarlar', label: 'Ayarlar' }
+              ].map(page => (
               <TouchableOpacity
-                key={page}
-                onPress={() => navigateTo(page)}
+                key={page.key}
+                onPress={() => navigateTo(page.key)}
                 style={styles.menuItem}
               >
-                <Text style={styles.menuItemText}>{page}</Text>
+                <Text style={styles.menuItemText}>{page.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -744,7 +855,7 @@ export default function App() {
               style={[styles.exportButton, { width: '50%' }]}
             >
               <Download color="white" size={20} />
-              <Text style={styles.buttonText}>CSV Export</Text>
+              <Text style={styles.buttonText}>Dışa Aktar</Text>
             </TouchableOpacity>
           </View>
 
@@ -1087,7 +1198,27 @@ export default function App() {
               </Text>
             </TouchableOpacity>
           </View>
-             <View>
+          <View style={[styles.card, { marginBottom: 16 }]}>
+            <Text style={styles.settingsTitle}>Arka Plan</Text>
+            <Text style={styles.settingsDescription}>
+              Uygulama arka planını özelleştirin
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+              <TouchableOpacity 
+                onPress={selectAndSetBackground} 
+                style={[styles.button, styles.saveButton, { flex: 1 }]}
+              >
+                <Text style={styles.buttonText}>Galeriden Seç</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={resetBackgroundToDefault} 
+                style={[styles.button, styles.cancelButton, { flex: 1 }]}
+              >
+                <Text style={styles.buttonText}>Sıfırla</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View>
             <Text>  </Text>
             <Text>  </Text>
             <Text>  </Text>
@@ -1096,13 +1227,19 @@ export default function App() {
         </ScrollView>
       )}
     </View>
-  );
+  </ImageBackground>
+);
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB'
+    backgroundColor: 'transparent'
+  },
+  backgroundImage: {
+  flex: 1,
+  width: '100%',
+  height: '100%',
   },
   centerContainer: {
     flex: 1,
@@ -1120,7 +1257,7 @@ const styles = StyleSheet.create({
     color: '#2563EB'
   },
   header: {
-    backgroundColor: '#2563EB',
+    backgroundColor: 'transparent',
     padding: 16,
     paddingTop: 48,
     flexDirection: 'row',
