@@ -9,8 +9,8 @@ import {
   Modal,
   Dimensions,
   Alert,
-  Platform,
-  ImageBackground
+  ImageBackground,
+  Platform
 } from 'react-native';
 import { Menu, Plus, Minus, Trash2, Download, X, Check, Edit2, Cloud } from 'lucide-react-native';
 import { LineChart } from 'react-native-chart-kit';
@@ -21,6 +21,7 @@ import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import localPrayerTimes from './src/sources/prayer_times.json';
+import * as ImagePicker from 'expo-image-picker';
 import RandomVerseFetcher, { fetchRandomVerseFunction } from './src/components/RandomVerseFetcher';
 import HomePage from './src/pages/HomePage';
 import CardsPage from './src/pages/CardsPage';
@@ -80,19 +81,6 @@ export default function App() {
   const [weatherData, setWeatherData] = useState(null);
   const [locationError, setLocationError] = useState(null);
   const [backgroundUri, setBackgroundUri] = useState(null);
-
-  // Page-related handlers (moved implementations into page handler modules)
-  const fetchAndSetRandomVerse = createFetchAndSetRandomVerse({ setVerseLoading, setVerseData });
-  const fetchWeatherData = createFetchWeatherData({ setWeatherLoading, setWeatherData, setLocationError });
-
-  const cardHandlers = createCardHandlers({ cards, setCards, newTitle, setNewTitle, newValue, setNewValue, setShowTitleInput, setEditingCardId, editInputType, setEditInputType, editValue, setEditValue });
-  const { handleCreateCard, handleAddValue, handleEditValue, handleDeleteCard, getCardTotal, exportToCSV: exportToCSVString } = cardHandlers;
-
-  const { getChartData } = createReportsHelpers({ cards, chartPeriod });
-
-  const vakitHandlers = createVakitHandlers({ setLoadingPrayer, setPrayerTimes, selectedCity, setSyncingPrayers });
-  const { loadPrayerTimesFromStorage, fetchPrayerTimes, syncAllCities: syncAllCitiesHandler, isPrayerPassed } = vakitHandlers;
-
   const cities = ["Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", "Ardahan", "Artvin", "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul", "İzmir", "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kilis", "Kırıkkale", "Kırklareli", "Kırşehir", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Mardin", "Mersin", "Muğla", "Muş", "Nevşehir", "Niğde", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Şanlıurfa", "Siirt", "Sinop", "Sivas", "Şırnak", "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"];
 
   // Pages (internal key vs UI label)
@@ -197,14 +185,16 @@ export default function App() {
     }
   };
 
-  const resetBackgroundToDefault = async () => {
-    try {
-      await AsyncStorage.removeItem('background_uri');
-      setBackgroundUri(null);
-    } catch (err) {
-      console.warn('Arka plan sıfırlanamadı:', err);
-    }
-  };
+  // Uygulama açılışında kaydedilmiş şehri yükle
+  React.useEffect(() => {
+    const initialize = async () => {
+      await requestNotificationPermissions();
+      await initializePrayerTimes();
+      await loadSavedCity();
+      await loadSavedBackground();
+    };
+    initialize();
+  }, []);
 
   // Şehir değiştiğinde veya sayfa Vakitler'e geçtiğinde vakitleri yükle
   React.useEffect(() => {
@@ -307,12 +297,166 @@ export default function App() {
       console.error('Şehir kaydedilirken hata:', error);
     }
   };
+
+  const loadSavedBackground = async () => {
+  try {
+    const uri = await AsyncStorage.getItem('background_uri');
+    if (uri) setBackgroundUri(uri);
+  } catch (err) {
+    console.warn('Arka plan yüklenemedi:', err);
+  }
+};
+
+const selectAndSetBackground = async () => {
+  try {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('İzin gerekli', 'Galeriden resim seçebilmek için izin gereklidir.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setBackgroundUri(result.assets[0].uri);
+      await AsyncStorage.setItem('background_uri', result.assets[0].uri);
+    }
+  } catch (err) {
+    console.error('Arka plan seçilemedi:', err);
+  }
+};
+
+const resetBackgroundToDefault = async () => {
+  try {
+    await AsyncStorage.removeItem('background_uri');
+    setBackgroundUri(null);
+  } catch (err) {
+    console.warn('Arka plan sıfırlanamadı:', err);
+  }
+};
+
   const navigateTo = (page) => {
     setCurrentPage(page);
     setMenuOpen(false);
   };
 
-  // loadPrayerTimesFromStorage implementation moved to src/pages/vakitHandlers
+  const loadPrayerTimesFromStorage = async (city) => {
+    setLoadingPrayer(true);
+    try {
+      const cityKey = city
+        .replace(/İ/g, 'i')
+        .replace(/I/g, 'i')
+        .toLowerCase()
+        .replace(/ç/g, 'c')
+        .replace(/ğ/g, 'g')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ş/g, 's')
+        .replace(/ü/g, 'u');
+
+      const data = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
+
+      if (!data) {
+        // Veri yok, API'den çek
+        console.log(`${city} için veri yok, API'den çekiliyor...`);
+        await fetchPrayerTimes(city);
+        // Tekrar yükle
+        const newData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
+        if (newData) {
+          const dates = JSON.parse(newData);
+          const today = new Date().toISOString().split('T')[0];
+          if (dates[today]) {
+            const times = dates[today];
+            const formattedTimes = times.map((time, index) => ({
+              vakit: prayerNames[index],
+              saat: time
+            }));
+            setPrayerTimes(formattedTimes);
+          }
+        }
+        setLoadingPrayer(false);
+        return;
+      }
+
+      const dates = JSON.parse(data);
+      const today = new Date().toISOString().split('T')[0];
+
+      if (dates[today]) {
+        const times = dates[today];
+        const formattedTimes = times.map((time, index) => ({
+          vakit: prayerNames[index],
+          saat: time
+        }));
+        setPrayerTimes(formattedTimes);
+        console.log('Vakitler AsyncStorage\'den yüklendi:', cityKey, today);
+      } else {
+        // Bugünün verisi yok, API'den çek
+        console.log(`${city} için bugünün verisi yok, API'den çekiliyor...`);
+        await fetchPrayerTimes(city);
+        // Tekrar yükle
+        const newData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
+        if (newData) {
+          const newDates = JSON.parse(newData);
+          if (newDates[today]) {
+            const times = newDates[today];
+            const formattedTimes = times.map((time, index) => ({
+              vakit: prayerNames[index],
+              saat: time
+            }));
+            setPrayerTimes(formattedTimes);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Storage\'dan veri yükleme hatası:', error);
+    } finally {
+      setLoadingPrayer(false);
+    }
+  };
+
+  const fetchPrayerTimes = async (city) => {
+    setLoadingPrayer(true);
+    setSyncingPrayers(true);
+    try {
+      const cityLower = city
+        .replace(/İ/g, 'i')
+        .replace(/I/g, 'i')
+        .toLowerCase()
+        .replace(/ç/g, 'c')
+        .replace(/ğ/g, 'g')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ş/g, 's')
+        .replace(/ü/g, 'u');
+
+      console.log('Requesting city:', cityLower);
+
+      const response = await fetch(`https://api.collectapi.com/pray/all?city=${cityLower}`, {
+        method: 'GET',
+        headers: {
+          'content-type': 'application/json',
+          'authorization': 'apikey 6bhifejnOZi5grqhwDdjmN:7p0k9uaapOopk9cWT3GPj9'
+        }
+      });
+
+      console.log('Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('Error response:', errorText);
+        throw new Error(`API Hatası: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.result && data.result.length > 0) {
+        const times = data.result.map(item => item.saat);
+        const today = new Date().toISOString().split('T')[0];
+
+        const existingData = await AsyncStorage.getItem(`prayer_times_${cityLower}`);
+        const dates = existingData ? JSON.parse(existingData) : {};
 
   // fetchPrayerTimes implementation moved to src/pages/vakitHandlers
 
@@ -364,7 +508,35 @@ export default function App() {
     setSelectedCity(city);
     setShowCityDropdown(false);
     await saveCity(city);
-    loadPrayerTimesFromStorage(city);
+    
+    // Önce storage'dan yükle
+    await loadPrayerTimesFromStorage(city);
+    
+    // Eğer bugünün verisi yoksa, API'den çek
+    const today = new Date().toISOString().split('T')[0];
+    const cityKey = city.toLowerCase()
+      .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
+      .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c');
+    
+    try {
+      const storedData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
+      if (storedData) {
+        const dates = JSON.parse(storedData);
+        if (!dates[today]) {
+          // Bugünün verisi yok, API'den çek
+          console.log(`${city} için bugünün verisi yok, API'den çekiliyor...`);
+          await fetchPrayerTimes(city);
+          await loadPrayerTimesFromStorage(city);
+        }
+      } else {
+        // Hiç veri yok, API'den çek
+        console.log(`${city} için hiç veri yok, API'den çekiliyor...`);
+        await fetchPrayerTimes(city);
+        await loadPrayerTimesFromStorage(city);
+      }
+    } catch (error) {
+      console.error('Şehir değiştirme hatası:', error);
+    }
   };
 
   const getNextPrayer = () => {
@@ -449,11 +621,14 @@ export default function App() {
   const selectedCardData = cards.find(c => c.id === selectedCard);
 
   return (
-    <ImageBackground source={backgroundUri ? { uri: backgroundUri } : require('./assets/bg_night.jpg')} style={styles.backgroundImage} resizeMode="cover">
-      <View style={styles.container}>
+    <ImageBackground 
+    source={backgroundUri ? { uri: backgroundUri } : require('./assets/bg_night.jpg')} 
+    style={styles.backgroundImage} 
+    resizeMode="cover">
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-  <Text style={styles.headerTitle}>Namaz Vakitleri</Text>
+        <Text style={styles.headerTitle}>Namaz Vakitleri</Text>
         <TouchableOpacity onPress={() => setMenuOpen(!menuOpen)} style={styles.menuButton}>
           <Menu color="white" size={24} />
         </TouchableOpacity>
@@ -467,7 +642,13 @@ export default function App() {
           onPress={() => setMenuOpen(false)}
         >
           <View style={styles.menuContainer}>
-            {pages.map(page => (
+            {[
+                { key: 'Home', label: 'Ana Sayfa' },
+                { key: 'Cards', label: 'Dua ve Zikir' },
+                { key: 'Reports', label: 'Raporlar' },
+                { key: 'Vakitler', label: 'Namaz Vakitleri' },
+                { key: 'Ayarlar', label: 'Ayarlar' }
+              ].map(page => (
               <TouchableOpacity
                 key={page.key}
                 onPress={() => navigateTo(page.key)}
@@ -513,7 +694,7 @@ export default function App() {
               style={[styles.exportButton, { width: '50%' }]}
             >
               <Download color="white" size={20} />
-              <Text style={styles.buttonText}>CSV Export</Text>
+              <Text style={styles.buttonText}>Dışa Aktar</Text>
             </TouchableOpacity>
           </View>
 
@@ -680,11 +861,608 @@ export default function App() {
       
       {/* Ayarlar Page */}
       {currentPage === 'Ayarlar' && (
-        <SettingsPage styles={styles} syncAllCities={syncAllCities} syncingPrayers={syncingPrayers} backgroundUri={backgroundUri} selectBackground={selectAndSetBackground} resetBackground={resetBackgroundToDefault} />
+        <ScrollView style={styles.content}>
+          <View style={styles.card}>
+            <Text style={styles.settingsTitle}>Namaz Vakitleri</Text>
+            <Text style={styles.settingsDescription}>
+              Tüm şehirler için güncel namaz vakitlerini günceller.
+            </Text>
+            <TouchableOpacity
+              onPress={() => syncAllCities()}
+              style={[styles.syncButton, syncingPrayers && styles.syncButtonDisabled]}
+              disabled={syncingPrayers}
+            >
+              <Text style={styles.syncButtonText}>
+                {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.card, { marginBottom: 16 }]}>
+            <Text style={styles.settingsTitle}>Arka Plan</Text>
+            <Text style={styles.settingsDescription}>
+              Uygulama arka planını özelleştirin
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+              <TouchableOpacity 
+                onPress={selectAndSetBackground} 
+                style={[styles.button, styles.saveButton, { flex: 1 }]}
+              >
+                <Text style={styles.buttonText}>Galeriden Seç</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={resetBackgroundToDefault} 
+                style={[styles.button, styles.cancelButton, { flex: 1 }]}
+              >
+                <Text style={styles.buttonText}>Sıfırla</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View>
+            <Text>  </Text>
+            <Text>  </Text>
+            <Text>  </Text>
+            <Text style={{ fontSize: 12 }}>Namaz Vakti v1.0 @2025</Text>
+          </View>
+        </ScrollView>
       )}
     </View>
-    </ImageBackground>
-  );
+  </ImageBackground>
+);
 }
 
-// Styles have been moved to src/styles.js
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: 'transparent'
+  },
+  backgroundImage: {
+  flex: 1,
+  width: '100%',
+  height: '100%',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  homeContentContainer: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 20
+  },
+  appName: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#2563EB'
+  },
+  header: {
+    backgroundColor: 'transparent',
+    padding: 16,
+    paddingTop: 48,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  headerTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold'
+  },
+  menuButton: {
+    padding: 8
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end'
+  },
+  menuContainer: {
+    backgroundColor: 'white',
+    marginTop: 80,
+    marginRight: 16,
+    borderRadius: 8,
+    width: 180,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5
+  },
+  menuItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB'
+  },
+  menuItemText: {
+    fontSize: 16
+  },
+  content: {
+    flex: 1,
+    padding: 16
+  },
+  cardPageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    gap: 8
+  },
+  newButton: {
+    backgroundColor: '#16A34A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+    flex: 1,
+    minHeight: 48
+  },
+  exportButton: {
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+    flex: 1,
+    minHeight: 48
+  },
+  cardItem: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  cardItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start'
+  },
+  cardItemLeft: {
+    flex: 1
+  },
+  cardItemRight: {
+    alignItems: 'flex-end',
+    gap: 8
+  },
+  cardActionButtons: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  cardActionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  deleteButtonBottom: {
+    padding: 4
+  },
+  editSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB'
+  },
+  cardItemTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8
+  },
+  cardItemTotal: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#D1D5DB'
+  },
+  dropdown: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#D1D5DB'
+  },
+  dropdownText: {
+    fontSize: 16
+  },
+  dropdownMenu: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#D1D5DB'
+  },
+  dropdownItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB'
+  },
+  dropdownItemText: {
+    fontSize: 16
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  cardSurah: {
+    width: '100%',
+    backgroundColor: '#d17a08ff',
+    borderRadius: 10,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  weatherCard: {
+    width: '100%',
+    backgroundColor: '#3B82F6',
+    borderRadius: 10,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    minHeight: 150
+  },
+  weatherLoadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20
+  },
+  weatherLoadingText: {
+    color: 'white',
+    fontSize: 16,
+    marginTop: 12
+  },
+  weatherErrorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20
+  },
+  weatherErrorText: {
+    color: 'white',
+    fontSize: 16,
+    marginTop: 12,
+    textAlign: 'center'
+  },
+  weatherRetryButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 12
+  },
+  weatherRetryText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  weatherInfoContainer: {
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  weatherTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 12
+  },
+  weatherTemperature: {
+    color: 'white',
+    fontSize: 48,
+    fontWeight: 'bold',
+    marginTop: 8
+  },
+  weatherRefreshButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 16
+  },
+  weatherRefreshText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  addButton: {
+    padding: 32,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  inputContainer: {
+    gap: 16
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  button: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8
+  },
+  saveButton: {
+    backgroundColor: '#16A34A'
+  },
+  cancelButton: {
+    backgroundColor: '#6B7280'
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: '600'
+  },
+  cardTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8
+  },
+  cardTotal: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#2563EB',
+    marginBottom: 24
+  },
+  actionButton: {
+    flex: 1,
+    padding: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  addActionButton: {
+    backgroundColor: '#16A34A'
+  },
+  subtractActionButton: {
+    backgroundColor: '#DC2626'
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#6B7280',
+    marginTop: 48,
+    fontSize: 16
+  },
+  periodButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16
+  },
+  periodButton: {
+    backgroundColor: '#E5E7EB',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8
+  },
+  periodButtonActive: {
+    backgroundColor: '#2563EB'
+  },
+  periodButtonText: {
+    color: '#374151',
+    fontWeight: '600'
+  },
+  periodButtonTextActive: {
+    color: 'white'
+  },
+  chartTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16
+  },
+  chart: {
+    marginVertical: 8,
+    borderRadius: 16
+  },
+  cardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 16
+  },
+  chartCardButton: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 8,
+    minWidth: '48%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  chartCardButtonActive: {
+    backgroundColor: '#2563EB'
+  },
+  chartCardButtonText: {
+    color: '#374151',
+    fontWeight: '600'
+  },
+  chartCardButtonTextActive: {
+    color: 'white'
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#1F2937'
+  },
+  cityDropdownMenu: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#17191bff',
+    maxHeight: 300
+  },
+  prayerTable: {
+    width: '100%'
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#2563EB',
+    padding: 12,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8
+  },
+  tableHeaderText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16
+  },
+  tableRow: {
+    flexDirection: 'row',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB'
+  },
+  tableRowEven: {
+    backgroundColor: '#F9FAFB'
+  },
+  tableCell: {
+    flex: 1,
+    textAlign: 'center'
+  },
+  tableCellText: {
+    fontSize: 16,
+    color: '#374151'
+  },
+  loadingText: {
+    textAlign: 'center',
+    fontSize: 16,
+    color: '#6B7280',
+    padding: 20
+  },
+  nextPrayerBox: {
+    backgroundColor: '#16A34A',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  nextPrayerBoxHome: {
+    width: '90%',
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  nextPrayerTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8
+  },
+  nextPrayerName: {
+    color: 'white',
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 4
+  },
+  nextPrayerTime: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 12
+  },
+  nextPrayerCountdown: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '500'
+  },
+  tableRowPassed: {
+    backgroundColor: '#7C2D12'
+  },
+  tableCellTextPassed: {
+    color: '#FEF2F2',
+    textDecorationLine: 'line-through'
+  },
+  settingsTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#1F2937'
+  },
+  settingsDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
+    lineHeight: 20
+  },
+  syncButton: {
+    backgroundColor: '#2563EB',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  syncButtonDisabled: {
+    backgroundColor: '#9CA3AF'
+  },
+  syncButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  settingsNote: {
+    fontSize: 14,
+    color: '#374151',
+    textAlign: 'center',
+    fontWeight: '500'
+  },
+  syncButtonBottom: {
+    backgroundColor: '#2563EB',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 16,
+    marginHorizontal: 16
+  }
+});
