@@ -1251,7 +1251,7 @@ export default function App() {
                 </View>
               )}
             </View>
-
+            {/* Sync Button 
             <TouchableOpacity
               onPress={syncAllCities}
               style={[styles.syncButtonBottom, syncingPrayers && styles.syncButtonDisabled]}
@@ -1261,11 +1261,12 @@ export default function App() {
                 {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
               </Text>
             </TouchableOpacity>
+            */}
             <View>
               <Text>  </Text>
+              <Text style={{ fontSize: 12, color: '#d12608ff', fontWeight: '600', elevation: 3, opacity: 0.8, textAlign: 'center' }}>Namaz Vakti v1.0 @2025</Text>
               <Text>  </Text>
               <Text>  </Text>
-              <Text style={{ fontSize: 12 }}>Namaz Vakti v1.0 @2025</Text>
             </View>
           </ScrollView>
         )}
@@ -1511,6 +1512,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    opacity: 1,
     elevation: 3
   },
   cardSurah: {
@@ -1791,6 +1793,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    opacity: 0.8,
     elevation: 3
   },
   nextPrayerBoxHome: {
@@ -1861,6 +1864,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600'
   },
+  dateText: {
+    fontSize: 16,
+    fontWeight: '600'
+  },
   settingsNote: {
     fontSize: 14,
     color: '#374151',
@@ -1877,22 +1884,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderRadius: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2
-  },
-  dateText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937'
-  },
-  dateNavButton: {
-    padding: 8,
-    borderRadius: 4
-  },
-  dateNavButtonDisabled: {
-    opacity: 0.5
+    opacity: 0.8,
+    elevation: 3
   },
   syncButtonBottom: {
     backgroundColor: '#2563EB',
