@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -70,6 +70,9 @@ export default function App() {
   const [weatherData, setWeatherData] = useState(null);
   const [locationError, setLocationError] = useState(null);
   const [backgroundUri, setBackgroundUri] = useState(null);
+
+  // Ref to track if cards have been loaded from storage
+  const cardsLoadedRef = useRef(false);
   const cities = ["Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", "Ardahan", "Artvin", "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul", "İzmir", "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kilis", "Kırıkkale", "Kırklareli", "Kırşehir", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Mardin", "Mersin", "Muğla", "Muş", "Nevşehir", "Niğde", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Şanlıurfa", "Siirt", "Sinop", "Sivas", "Şırnak", "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"];
 
   const prayerNames = ["İmsak", "Güneş", "Öğle", "İkindi", "Akşam", "Yatsı"];
@@ -222,8 +225,12 @@ export default function App() {
     const initialize = async () => {
       await requestNotificationPermissions();
       await initializePrayerTimes();
-      await loadSavedCity();
+      const city = await loadSavedCity();
       await loadSavedBackground();
+      await loadCards();
+      if (city) {
+        await loadPrayerTimesFromStorage(city);
+      }
     };
     initialize();
   }, []);
@@ -234,6 +241,13 @@ export default function App() {
       loadPrayerTimesFromStorage(selectedCity, selectedDate);
     }
   }, [selectedCity, currentPage, selectedDate]);
+
+  // Kartlar değiştiğinde otomatik kaydet (sadece yükleme tamamlandıktan sonra)
+  React.useEffect(() => {
+    if (cardsLoadedRef.current) {
+      saveCards(cards);
+    }
+  }, [cards]);
 
   const requestNotificationPermissions = async () => {
     const { status } = await Notifications.requestPermissionsAsync();
@@ -301,11 +315,14 @@ export default function App() {
       if (savedCity) {
         setSelectedCity(savedCity);
         console.log('Kaydedilmiş şehir yüklendi:', savedCity);
+        return savedCity;
       } else {
         await saveCity('İstanbul');
+        return 'İstanbul';
       }
     } catch (error) {
       console.error('Şehir yüklenirken hata:', error);
+      return 'İstanbul';
     }
   };
 
@@ -324,6 +341,30 @@ export default function App() {
       if (uri) setBackgroundUri(uri);
     } catch (err) {
       console.warn('Arka plan yüklenemedi:', err);
+    }
+  };
+
+  const loadCards = async () => {
+    try {
+      const savedCards = await AsyncStorage.getItem('cards');
+      if (savedCards) {
+        setCards(JSON.parse(savedCards));
+        console.log('Kartlar yüklendi:', JSON.parse(savedCards).length, 'kart');
+      }
+    } catch (error) {
+      console.error('Kartlar yüklenirken hata:', error);
+    } finally {
+      // Mark cards as loaded to enable auto-save
+      cardsLoadedRef.current = true;
+    }
+  };
+
+  const saveCards = async (cardsToSave) => {
+    try {
+      await AsyncStorage.setItem('cards', JSON.stringify(cardsToSave));
+      console.log('Kartlar kaydedildi');
+    } catch (error) {
+      console.error('Kartlar kaydedilirken hata:', error);
     }
   };
 
