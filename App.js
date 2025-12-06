@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   ImageBackground,
   Platform
 } from 'react-native';
-import { Menu, Plus, Minus, Trash2, Download, X, Check, Edit2, Cloud } from 'lucide-react-native';
+import { Menu, Plus, Minus, Trash2, Download, X, Check, Edit2, Cloud, ChevronRight, ChevronLeft } from 'lucide-react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { documentDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -63,6 +63,7 @@ export default function App() {
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [syncingPrayers, setSyncingPrayers] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   // Random verse state
   const [verseLoading, setVerseLoading] = useState(false);
   const [verseData, setVerseData] = useState({
@@ -75,12 +76,15 @@ export default function App() {
   const [editingCardId, setEditingCardId] = useState(null);
   const [editInputType, setEditInputType] = useState('add');
   const [editValue, setEditValue] = useState('');
-  
+
   // Weather state
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherData, setWeatherData] = useState(null);
   const [locationError, setLocationError] = useState(null);
   const [backgroundUri, setBackgroundUri] = useState(null);
+
+  // Ref to track if cards have been loaded from storage
+  const cardsLoadedRef = useRef(false);
   const cities = ["Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", "Ardahan", "Artvin", "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur", "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan", "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul", "İzmir", "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kilis", "Kırıkkale", "Kırklareli", "Kırşehir", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Mardin", "Mersin", "Muğla", "Muş", "Nevşehir", "Niğde", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Şanlıurfa", "Siirt", "Sinop", "Sivas", "Şırnak", "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"];
 
   // Pages (internal key vs UI label)
@@ -93,7 +97,69 @@ export default function App() {
   ];
 
   const prayerNames = ["İmsak", "Güneş", "Öğle", "İkindi", "Akşam", "Yatsı"];
+  // Tarih formatlama fonksiyonu
+  const formatDateForDisplay = (date) => {
+    const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+    const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    const dayName = days[date.getDay()];
+
+    return `${day} ${month} ${year}, ${dayName}`;
+  };
+  // Bir sonraki güne geçiş
+  const handleNextDay = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const maxDate = new Date(today);
+    maxDate.setDate(maxDate.getDate() + 7);
+
+    const nextDate = new Date(selectedDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+
+    if (nextDate <= maxDate) {
+      setSelectedDate(nextDate);
+    }
+  };
+  // İleri butonunun aktif olup olmadığını kontrol et
+  const canGoForward = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const maxDate = new Date(today);
+    maxDate.setDate(maxDate.getDate() + 6); // Bugünden 6 gün sonrası = toplam 7 gün
+
+
+    const currentSelectedDate = new Date(selectedDate);
+    currentSelectedDate.setHours(0, 0, 0, 0);
+
+    return currentSelectedDate < maxDate;
+  };
+  // Bir önceki güne geçiş
+  const handlePreviousDay = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const previousDate = new Date(selectedDate);
+    previousDate.setDate(previousDate.getDate() - 1);
+
+    if (previousDate >= today) {
+      setSelectedDate(previousDate);
+    }
+  };
+  // Geri butonunun aktif olup olmadığını kontrol et
+  const canGoBack = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const currentSelectedDate = new Date(selectedDate);
+    currentSelectedDate.setHours(0, 0, 0, 0);
+
+    return currentSelectedDate > today;
+  };
   // Canlı saat güncellemesi
   React.useEffect(() => {
     const interval = setInterval(() => {
@@ -190,8 +256,12 @@ export default function App() {
     const initialize = async () => {
       await requestNotificationPermissions();
       await initializePrayerTimes();
-      await loadSavedCity();
+      const city = await loadSavedCity();
       await loadSavedBackground();
+      await loadCards();
+      if (city) {
+        await loadPrayerTimesFromStorage(city);
+      }
     };
     initialize();
   }, []);
@@ -199,9 +269,16 @@ export default function App() {
   // Şehir değiştiğinde veya sayfa Vakitler'e geçtiğinde vakitleri yükle
   React.useEffect(() => {
     if (selectedCity && currentPage === 'Vakitler') {
-      loadPrayerTimesFromStorage(selectedCity);
+      loadPrayerTimesFromStorage(selectedCity, selectedDate);
     }
-  }, [selectedCity, currentPage]);
+  }, [selectedCity, currentPage, selectedDate]);
+
+  // Kartlar değiştiğinde otomatik kaydet (sadece yükleme tamamlandıktan sonra)
+  React.useEffect(() => {
+    if (cardsLoadedRef.current) {
+      saveCards(cards);
+    }
+  }, [cards]);
 
   const requestNotificationPermissions = async () => {
     const { status } = await Notifications.requestPermissionsAsync();
@@ -286,6 +363,7 @@ export default function App() {
       }
     } catch (error) {
       console.error('Şehir yüklenirken hata:', error);
+      return 'İstanbul';
     }
   };
 
@@ -299,50 +377,74 @@ export default function App() {
   };
 
   const loadSavedBackground = async () => {
-  try {
-    const uri = await AsyncStorage.getItem('background_uri');
-    if (uri) setBackgroundUri(uri);
-  } catch (err) {
-    console.warn('Arka plan yüklenemedi:', err);
-  }
-};
-
-const selectAndSetBackground = async () => {
-  try {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('İzin gerekli', 'Galeriden resim seçebilmek için izin gereklidir.');
-      return;
+    try {
+      const uri = await AsyncStorage.getItem('background_uri');
+      if (uri) setBackgroundUri(uri);
+    } catch (err) {
+      console.warn('Arka plan yüklenemedi:', err);
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.8,
-    });
-    if (!result.canceled && result.assets[0]) {
-      setBackgroundUri(result.assets[0].uri);
-      await AsyncStorage.setItem('background_uri', result.assets[0].uri);
-    }
-  } catch (err) {
-    console.error('Arka plan seçilemedi:', err);
-  }
-};
+  };
 
-const resetBackgroundToDefault = async () => {
-  try {
-    await AsyncStorage.removeItem('background_uri');
-    setBackgroundUri(null);
-  } catch (err) {
-    console.warn('Arka plan sıfırlanamadı:', err);
-  }
-};
+  const loadCards = async () => {
+    try {
+      const savedCards = await AsyncStorage.getItem('cards');
+      if (savedCards) {
+        setCards(JSON.parse(savedCards));
+        console.log('Kartlar yüklendi:', JSON.parse(savedCards).length, 'kart');
+      }
+    } catch (error) {
+      console.error('Kartlar yüklenirken hata:', error);
+    } finally {
+      // Mark cards as loaded to enable auto-save
+      cardsLoadedRef.current = true;
+    }
+  };
+
+  const saveCards = async (cardsToSave) => {
+    try {
+      await AsyncStorage.setItem('cards', JSON.stringify(cardsToSave));
+      console.log('Kartlar kaydedildi');
+    } catch (error) {
+      console.error('Kartlar kaydedilirken hata:', error);
+    }
+  };
+
+  const selectAndSetBackground = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('İzin gerekli', 'Galeriden resim seçebilmek için izin gereklidir.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets[0]) {
+        setBackgroundUri(result.assets[0].uri);
+        await AsyncStorage.setItem('background_uri', result.assets[0].uri);
+      }
+    } catch (err) {
+      console.error('Arka plan seçilemedi:', err);
+    }
+  };
+
+  const resetBackgroundToDefault = async () => {
+    try {
+      await AsyncStorage.removeItem('background_uri');
+      setBackgroundUri(null);
+    } catch (err) {
+      console.warn('Arka plan sıfırlanamadı:', err);
+    }
+  };
 
   const navigateTo = (page) => {
     setCurrentPage(page);
     setMenuOpen(false);
   };
 
-  const loadPrayerTimesFromStorage = async (city) => {
+  const loadPrayerTimesFromStorage = async (city, date = null) => {
     setLoadingPrayer(true);
     try {
       const cityKey = city
@@ -366,9 +468,9 @@ const resetBackgroundToDefault = async () => {
         const newData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
         if (newData) {
           const dates = JSON.parse(newData);
-          const today = new Date().toISOString().split('T')[0];
-          if (dates[today]) {
-            const times = dates[today];
+          const targetDate = date ? date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+          if (dates[targetDate]) {
+            const times = dates[targetDate];
             const formattedTimes = times.map((time, index) => ({
               vakit: prayerNames[index],
               saat: time
@@ -381,26 +483,26 @@ const resetBackgroundToDefault = async () => {
       }
 
       const dates = JSON.parse(data);
-      const today = new Date().toISOString().split('T')[0];
+      const targetDate = date ? date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-      if (dates[today]) {
-        const times = dates[today];
+      if (dates[targetDate]) {
+        const times = dates[targetDate];
         const formattedTimes = times.map((time, index) => ({
           vakit: prayerNames[index],
           saat: time
         }));
         setPrayerTimes(formattedTimes);
-        console.log('Vakitler AsyncStorage\'den yüklendi:', cityKey, today);
+        console.log('Vakitler AsyncStorage\'den yüklendi:', cityKey, targetDate);
       } else {
-        // Bugünün verisi yok, API'den çek
-        console.log(`${city} için bugünün verisi yok, API'den çekiliyor...`);
+        // Seçili tarihin verisi yok, API'den çek
+        console.log(`${city} için ${targetDate} verisi yok, API'den çekiliyor...`);
         await fetchPrayerTimes(city);
         // Tekrar yükle
         const newData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
         if (newData) {
           const newDates = JSON.parse(newData);
-          if (newDates[today]) {
-            const times = newDates[today];
+          if (newDates[targetDate]) {
+            const times = newDates[targetDate];
             const formattedTimes = times.map((time, index) => ({
               vakit: prayerNames[index],
               saat: time
@@ -505,19 +607,20 @@ const resetBackgroundToDefault = async () => {
   };
 
   const handleCityChange = async (city) => {
+    setSelectedDate(new Date()); // Tarihi bugüne sıfırla
     setSelectedCity(city);
     setShowCityDropdown(false);
     await saveCity(city);
-    
+
     // Önce storage'dan yükle
     await loadPrayerTimesFromStorage(city);
-    
+
     // Eğer bugünün verisi yoksa, API'den çek
     const today = new Date().toISOString().split('T')[0];
     const cityKey = city.toLowerCase()
       .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
       .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c');
-    
+
     try {
       const storedData = await AsyncStorage.getItem(`prayer_times_${cityKey}`);
       if (storedData) {
@@ -621,28 +724,28 @@ const resetBackgroundToDefault = async () => {
   const selectedCardData = cards.find(c => c.id === selectedCard);
 
   return (
-    <ImageBackground 
-    source={backgroundUri ? { uri: backgroundUri } : require('./assets/bg_night.jpg')} 
-    style={styles.backgroundImage} 
-    resizeMode="cover">
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Namaz Vakitleri</Text>
-        <TouchableOpacity onPress={() => setMenuOpen(!menuOpen)} style={styles.menuButton}>
-          <Menu color="white" size={24} />
-        </TouchableOpacity>
-      </View>
+    <ImageBackground
+      source={backgroundUri ? { uri: backgroundUri } : require('./assets/bg_night.jpg')}
+      style={styles.backgroundImage}
+      resizeMode="cover">
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Namaz Vakitleri</Text>
+          <TouchableOpacity onPress={() => setMenuOpen(!menuOpen)} style={styles.menuButton}>
+            <Menu color="white" size={24} />
+          </TouchableOpacity>
+        </View>
 
-      {/* Menu Modal */}
-      <Modal visible={menuOpen} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setMenuOpen(false)}
-        >
-          <View style={styles.menuContainer}>
-            {[
+        {/* Menu Modal */}
+        <Modal visible={menuOpen} transparent animationType="fade">
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setMenuOpen(false)}
+          >
+            <View style={styles.menuContainer}>
+              {[
                 { key: 'Home', label: 'Ana Sayfa' },
                 { key: 'Cards', label: 'Dua ve Zikir' },
                 { key: 'Reports', label: 'Raporlar' },
@@ -689,14 +792,23 @@ const resetBackgroundToDefault = async () => {
               <Text style={[styles.buttonText, { width: '50%' }]}>Yeni</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={exportToCSV}
-              style={[styles.exportButton, { width: '50%' }]}
-            >
-              <Download color="white" size={20} />
-              <Text style={styles.buttonText}>Dışa Aktar</Text>
-            </TouchableOpacity>
-          </View>
+              {/* Random verse card */}
+              <View style={[styles.cardSurah, { marginTop: 16 }]}>
+                {verseLoading ? (
+                  <Text style={styles.loadingText}>Bismillahirrahmanirrahim...</Text>
+                ) : (
+                  <>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
+                      {verseData.surah_name} {verseData.surah_id ? `(${verseData.surah_id})` : ''}
+                    </Text>
+                    <Text style={{ marginTop: 8 }}> {verseData.verse_number}. Ayet</Text>
+                    <Text style={{ marginTop: 10, fontSize: 16, textAlign: 'right' }}>
+                      {verseData.verse_simplified}
+                    </Text>
+                    <Text style={{ marginTop: 10, fontStyle: 'italic' }}>{verseData.translation}</Text>
+                  </>
+                )}
+              </View>
 
           {showTitleInput && (
             <View style={styles.card}>
@@ -754,70 +866,209 @@ const resetBackgroundToDefault = async () => {
                   </Text>
                 </View>
 
-                <View style={styles.cardItemRight}>
-                  <View style={styles.cardActionButtons}>
+        {/* Cards Page */}
+        {currentPage === 'Cards' && (
+          <ScrollView style={styles.content}>
+            <View style={styles.cardPageHeader}>
+              <TouchableOpacity
+                onPress={() => setShowTitleInput(true)}
+                style={styles.newButton}
+              >
+                <Plus color="white" size={20} />
+                <Text style={[styles.buttonText, { width: '50%' }]}>Yeni</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={exportToCSV}
+                style={[styles.exportButton, { width: '50%' }]}
+              >
+                <Download color="white" size={20} />
+                <Text style={styles.buttonText}>Dışa Aktar</Text>
+              </TouchableOpacity>
+            </View>
+
+            {showTitleInput && (
+              <View style={styles.card}>
+                <View style={styles.inputContainer}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Kart başlığı (max 30 karakter)"
+                    value={newTitle}
+                    onChangeText={(text) => setNewTitle(text.slice(0, 30))}
+                    maxLength={30}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Pozitif sayı giriniz"
+                    value={newValue}
+                    onChangeText={(text) => {
+                      if (text === '' || parseFloat(text) > 0) setNewValue(text);
+                    }}
+                    keyboardType="numeric"
+                  />
+                  <View style={styles.buttonRow}>
                     <TouchableOpacity
-                      onPress={() => {
-                        setEditingCardId(card.id);
-                        setEditInputType('add');
-                      }}
-                      style={[styles.cardActionButton, styles.addActionButton]}
+                      onPress={handleCreateCard}
+                      style={[styles.button, styles.saveButton]}
                     >
-                      <Plus color="white" size={20} />
+                      <Check color="white" size={20} />
+                      <Text style={styles.buttonText}>Kaydet</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
-                        setEditingCardId(card.id);
-                        setEditInputType('subtract');
+                        setShowTitleInput(false);
+                        setNewTitle('');
+                        setNewValue('');
                       }}
-                      style={[styles.cardActionButton, styles.subtractActionButton]}
+                      style={[styles.button, styles.cancelButton]}
                     >
-                      <Minus color="white" size={20} />
+                      <X color="white" size={20} />
+                      <Text style={styles.buttonText}>İptal</Text>
                     </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => handleDeleteCard(card.id)}
-                    style={styles.deleteButtonBottom}
-                  >
-                    <Trash2 color="#DC2626" size={20} />
-                  </TouchableOpacity>
                 </View>
               </View>
+            )}
 
-              {editingCardId === card.id && editInputType !== null && (
-                <View style={styles.editSection}>
-                  <View style={styles.inputContainer}>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Pozitif sayı giriniz"
-                      value={editValue}
-                      onChangeText={(text) => {
-                        if (text === '' || parseFloat(text) > 0) setEditValue(text);
-                      }}
-                      keyboardType="numeric"
-                    />
-                    <View style={styles.buttonRow}>
+            {cards.map(card => (
+              <View key={card.id} style={styles.cardItem}>
+                <View style={styles.cardItemHeader}>
+                  <View style={styles.cardItemLeft}>
+                    <Text style={styles.cardItemTitle}>{card.title}</Text>
+                    <Text style={styles.cardItemTotal}>
+                      {getCardTotal(card).toFixed(2)}
+                    </Text>
+                    <Text style={styles.cardItemEntries}>
+                      {card.entries.length} kayıt
+                    </Text>
+                  </View>
+
+                  <View style={styles.cardItemRight}>
+                    <View style={styles.cardActionButtons}>
                       <TouchableOpacity
-                        onPress={() => handleEditValue(card.id)}
-                        style={[styles.button, styles.saveButton]}
+                        onPress={() => {
+                          setEditingCardId(card.id);
+                          setEditInputType('add');
+                        }}
+                        style={[styles.cardActionButton, styles.addActionButton]}
                       >
-                        <Check color="white" size={20} />
-                        <Text style={styles.buttonText}>Kaydet</Text>
+                        <Plus color="white" size={20} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => {
-                          setEditInputType(null);
-                          setEditValue('');
-                          setEditingCardId(null);
+                          setEditingCardId(card.id);
+                          setEditInputType('subtract');
                         }}
-                        style={[styles.button, styles.cancelButton]}
+                        style={[styles.cardActionButton, styles.subtractActionButton]}
                       >
-                        <X color="white" size={20} />
-                        <Text style={styles.buttonText}>İptal</Text>
+                        <Minus color="white" size={20} />
                       </TouchableOpacity>
                     </View>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteCard(card.id)}
+                      style={styles.deleteButtonBottom}
+                    >
+                      <Trash2 color="#DC2626" size={20} />
+                    </TouchableOpacity>
                   </View>
                 </View>
+
+                {editingCardId === card.id && editInputType !== null && (
+                  <View style={styles.editSection}>
+                    <View style={styles.inputContainer}>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Pozitif sayı giriniz"
+                        value={editValue}
+                        onChangeText={(text) => {
+                          if (text === '' || parseFloat(text) > 0) setEditValue(text);
+                        }}
+                        keyboardType="numeric"
+                      />
+                      <View style={styles.buttonRow}>
+                        <TouchableOpacity
+                          onPress={() => handleEditValue(card.id)}
+                          style={[styles.button, styles.saveButton]}
+                        >
+                          <Check color="white" size={20} />
+                          <Text style={styles.buttonText}>Kaydet</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setEditInputType(null);
+                            setEditValue('');
+                            setEditingCardId(null);
+                          }}
+                          style={[styles.button, styles.cancelButton]}
+                        >
+                          <X color="white" size={20} />
+                          <Text style={styles.buttonText}>İptal</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </View>
+            ))}
+
+            {cards.length === 0 && !showTitleInput && (
+              <Text style={styles.emptyText}>Henüz kart eklenmemiş</Text>
+            )}
+          </ScrollView>
+        )}
+
+        {/* Reports Page */}
+        {currentPage === 'Reports' && (
+          <ScrollView style={styles.content}>
+            <View style={styles.card}>
+              <View style={styles.periodButtons}>
+                {[
+                  { key: 'weekly', label: 'Haftalık' },
+                  { key: 'monthly', label: 'Aylık' },
+                  { key: 'quarterly', label: '3 Aylık' },
+                  { key: 'biannual', label: '6 Aylık' }
+                ].map(period => (
+                  <TouchableOpacity
+                    key={period.key}
+                    onPress={() => setChartPeriod(period.key)}
+                    style={[
+                      styles.periodButton,
+                      chartPeriod === period.key && styles.periodButtonActive
+                    ]}
+                  >
+                    <Text style={[
+                      styles.periodButtonText,
+                      chartPeriod === period.key && styles.periodButtonTextActive
+                    ]}>
+                      {period.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.chartTitle}>
+                {selectedChartCard ? selectedChartCard.title : 'Tüm Kayıtlar'}
+              </Text>
+
+              {cards.length > 0 && (
+                <LineChart
+                  data={{
+                    labels: [],
+                    datasets: [{ data: getChartData(selectedChartCard) }]
+                  }}
+                  width={Dimensions.get('window').width - 64}
+                  height={220}
+                  chartConfig={{
+                    backgroundColor: '#fff',
+                    backgroundGradientFrom: '#fff',
+                    backgroundGradientTo: '#fff',
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`,
+                    style: { borderRadius: 16 }
+                  }}
+                  bezier
+                  style={styles.chart}
+                />
               )}
             </View>
           ))}
@@ -868,46 +1119,73 @@ const resetBackgroundToDefault = async () => {
               Tüm şehirler için güncel namaz vakitlerini günceller.
             </Text>
             <TouchableOpacity
-              onPress={() => syncAllCities()}
-              style={[styles.syncButton, syncingPrayers && styles.syncButtonDisabled]}
+              onPress={syncAllCities}
+              style={[styles.syncButtonBottom, syncingPrayers && styles.syncButtonDisabled]}
               disabled={syncingPrayers}
             >
               <Text style={styles.syncButtonText}>
                 {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
               </Text>
             </TouchableOpacity>
-          </View>
-          <View style={[styles.card, { marginBottom: 16 }]}>
-            <Text style={styles.settingsTitle}>Arka Plan</Text>
-            <Text style={styles.settingsDescription}>
-              Uygulama arka planını özelleştirin
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              <TouchableOpacity 
-                onPress={selectAndSetBackground} 
-                style={[styles.button, styles.saveButton, { flex: 1 }]}
+            */}
+            <View>
+              <Text>  </Text>
+              <Text style={{ fontSize: 12, color: '#d12608ff', fontWeight: '600', elevation: 3, opacity: 0.8, textAlign: 'center' }}>Namaz Vakti v1.0 @2025</Text>
+              <Text>  </Text>
+              <Text>  </Text>
+            </View>
+          </ScrollView>
+        )}
+
+        {/* Ayarlar Page */}
+        {currentPage === 'Ayarlar' && (
+          <ScrollView style={styles.content}>
+            <View style={styles.card}>
+              <Text style={styles.settingsTitle}>Namaz Vakitleri</Text>
+              <Text style={styles.settingsDescription}>
+                Tüm şehirler için güncel namaz vakitlerini günceller.
+              </Text>
+              <TouchableOpacity
+                onPress={() => syncAllCities()}
+                style={[styles.syncButton, syncingPrayers && styles.syncButtonDisabled]}
+                disabled={syncingPrayers}
               >
-                <Text style={styles.buttonText}>Galeriden Seç</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={resetBackgroundToDefault} 
-                style={[styles.button, styles.cancelButton, { flex: 1 }]}
-              >
-                <Text style={styles.buttonText}>Sıfırla</Text>
+                <Text style={styles.syncButtonText}>
+                  {syncingPrayers ? 'Eşitleniyor...' : 'Vakitleri Eşitle'}
+                </Text>
               </TouchableOpacity>
             </View>
-          </View>
-          <View>
-            <Text>  </Text>
-            <Text>  </Text>
-            <Text>  </Text>
-            <Text style={{ fontSize: 12 }}>Namaz Vakti v1.0 @2025</Text>
-          </View>
-        </ScrollView>
-      )}
-    </View>
-  </ImageBackground>
-);
+            <View style={[styles.card, { marginBottom: 16 }]}>
+              <Text style={styles.settingsTitle}>Arka Plan</Text>
+              <Text style={styles.settingsDescription}>
+                Uygulama arka planını özelleştirin
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                <TouchableOpacity
+                  onPress={selectAndSetBackground}
+                  style={[styles.button, styles.saveButton, { flex: 1 }]}
+                >
+                  <Text style={styles.buttonText}>Galeriden Seç</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={resetBackgroundToDefault}
+                  style={[styles.button, styles.cancelButton, { flex: 1 }]}
+                >
+                  <Text style={styles.buttonText}>Sıfırla</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View>
+              <Text>  </Text>
+              <Text>  </Text>
+              <Text>  </Text>
+              <Text style={{ fontSize: 12 }}>Namaz Vakti v1.0 @2025</Text>
+            </View>
+          </ScrollView>
+        )}
+      </View>
+    </ImageBackground>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -916,9 +1194,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent'
   },
   backgroundImage: {
-  flex: 1,
-  width: '100%',
-  height: '100%',
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
   centerContainer: {
     flex: 1,
@@ -1100,6 +1378,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    opacity: 1,
     elevation: 3
   },
   cardSurah: {
@@ -1380,6 +1659,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    opacity: 0.8,
     elevation: 3
   },
   nextPrayerBoxHome: {
@@ -1450,11 +1730,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600'
   },
+  dateText: {
+    fontSize: 16,
+    fontWeight: '600'
+  },
   settingsNote: {
     fontSize: 14,
     color: '#374151',
     textAlign: 'center',
     fontWeight: '500'
+  },
+  dateNavigationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    shadowColor: '#000',
+    opacity: 0.8,
+    elevation: 3
   },
   syncButtonBottom: {
     backgroundColor: '#2563EB',
