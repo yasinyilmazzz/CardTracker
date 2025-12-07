@@ -672,9 +672,24 @@ export default function App() {
 
   const handleCreateCard = () => {
     if (newTitle.trim() && newValue && parseFloat(newValue) > 0) {
+      // Check for duplicate card names (case-insensitive)
+      const trimmedTitle = newTitle.trim().slice(0, 30);
+      const isDuplicate = cards.some(card =>
+        card.title.toLowerCase() === trimmedTitle.toLowerCase()
+      );
+
+      if (isDuplicate) {
+        Alert.alert(
+          'Uyarı',
+          'Bu isimde bir kart zaten mevcut. Lütfen farklı bir isim seçin.',
+          [{ text: 'Tamam' }]
+        );
+        return;
+      }
+
       const newCard = {
         id: Date.now(),
-        title: newTitle.trim().slice(0, 30),
+        title: trimmedTitle,
         entries: [{
           value: parseFloat(newValue),
           date: new Date().toISOString()
