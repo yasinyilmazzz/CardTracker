@@ -869,7 +869,7 @@ export default function App() {
                   <Text style={styles.nextPrayerTitle}>{selectedCity.toUpperCase()}</Text>
                   <Text style={styles.nextPrayerName}>{nextPrayer.name}</Text>
                   <Text style={styles.nextPrayerTime}>{nextPrayer.time}</Text>
-                  <Text style={[styles.nextPrayerCountdown, { color: '#6d1a0cff' }]}>
+                  <Text style={[styles.nextPrayerCountdown, { color: '#070707ff' }]}>
                     {nextPrayer.hours > 0 && `${nextPrayer.hours} saat `}
                     {nextPrayer.minutes} dakika {nextPrayer.seconds} saniye
                   </Text>
@@ -1565,7 +1565,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 3
+    elevation: 3,
+    opacity: 0.8
   },
   weatherCard: {
     width: '100%',
@@ -1577,6 +1578,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    opacity: 0.8,
     minHeight: 150
   },
   weatherLoadingContainer: {
@@ -1620,13 +1622,19 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 12
+    marginTop: 12,
+    textShadowColor: '#000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   weatherTemperature: {
     color: 'white',
     fontSize: 48,
     fontWeight: 'bold',
-    marginTop: 8
+    marginTop: 8,
+    textShadowColor: '#000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   weatherRefreshButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
@@ -1825,7 +1833,7 @@ const styles = StyleSheet.create({
     padding: 20
   },
   nextPrayerBox: {
-    backgroundColor: '#16A34A',
+    backgroundColor: '#07f72fff',
     borderRadius: 12,
     padding: 20,
     marginBottom: 16,
@@ -1849,22 +1857,28 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   nextPrayerTitle: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
+    color: 'blue',
+    fontSize: 20,
+    fontWeight: 'bold',
     marginBottom: 8
   },
   nextPrayerName: {
     color: 'white',
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 4
+    marginBottom: 4,
+    textShadowColor: '#000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   nextPrayerTime: {
     color: 'white',
     fontSize: 24,
     fontWeight: '600',
-    marginBottom: 12
+    marginBottom: 12,
+    textShadowColor: '#000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   nextPrayerCountdown: {
     color: 'white',
