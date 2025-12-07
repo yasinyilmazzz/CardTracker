@@ -1471,7 +1471,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 3
+    elevation: 3,
+    opacity: 0.8
   },
   cardItemHeader: {
     flexDirection: 'row',
@@ -1833,7 +1834,7 @@ const styles = StyleSheet.create({
     padding: 20
   },
   nextPrayerBox: {
-    backgroundColor: '#07f72fff',
+    backgroundColor: '#b8e89c',
     borderRadius: 12,
     padding: 20,
     marginBottom: 16,
