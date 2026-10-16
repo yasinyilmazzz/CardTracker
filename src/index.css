@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@theme {
+  --color-night-950: #060f0d;
+  --color-night-900: #0a1c17;
+  --color-night-850: #0d2620;
+  --color-night-800: #113129;
+  --color-night-750: #143a30;
+  --color-night-700: #1a4639;
+  --color-night-600: #235847;
+  --color-night-500: #2f6f5a;
+
+  --color-gold-200: #f3e2ae;
+  --color-gold-300: #ecd28a;
+  --color-gold-400: #ddb84f;
+  --color-gold-500: #c9a227;
+  --color-gold-600: #a9861f;
+  --color-gold-700: #856817;
+
+  --color-cream: #f4efe3;
+  --color-sage: #9db8ac;
+  --color-sage-dark: #6f8f80;
+
+  --font-sans: "Manrope", ui-sans-system, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-arabic: "Amiri", "Traditional Arabic", serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-night-950);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Koyu temada tarih seçici */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+/* İnce, temaya uygun kaydırma çubuğu */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-night-900);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-night-600);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-night-500);
+}
+
+/* Kart giriş animasyonu */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.6s cubic-bezier(0.22, 0.68, 0.36, 1) both;
+}
+
+/* Tooltip belirme animasyonu */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-pop-in {
+  animation: pop-in 0.18s ease-out both;
+  transform-origin: top right;
+}
+
+/* Sıradaki vakit vurgusu için yumuşak nabız */
+@keyframes soft-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(201, 162, 39, 0);
+  }
+}
+.animate-soft-pulse {
+  animation: soft-pulse 2.4s ease-in-out infinite;
+}
+
+/* Dönen yüklenme halkası için yavaşlatılmış spin zaten Tailwind'de var (animate-spin) */
